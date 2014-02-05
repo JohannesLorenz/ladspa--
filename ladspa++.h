@@ -28,6 +28,23 @@
 namespace helpers
 {
 
+template<int ...Seq>
+struct full_seq
+{
+};
+
+template<unsigned int N, int I=N-1, int ...Seq>
+struct seq_2
+{
+	using type = typename seq_2<N, I-1, I, Seq...>::type;
+};
+
+template<unsigned int N, int ...Seq>
+struct seq_2<N, -1, Seq...>
+{
+	using type = full_seq<Seq...>;
+};
+
 // token from [1]
 template<int... Is> struct seq {};
 template<int N, int... Is> struct gen_seq : gen_seq<N-1, N-1, Is...> {};
@@ -296,7 +313,6 @@ class port_array
 {
 private:
 	std::array<data*, helpers::enum_size<PortNamesT>()> storage;
-//	std::tuple<>
 	static bool in_range_cond(int id)
 	{
 		return id >= 0 && id < helpers::enum_size<PortNamesT>();
@@ -311,21 +327,6 @@ public:
 	//	static constexpr auto descr = port_des_array[(std::size_t)PortName].descriptor;
 		typedef return_value<&descr> type;
 	};
-private:
-	/*template<class T> struct identity {};
-	
-	template<class T, PortNamesT PortName>
-	T get_converted(identity<T>)
-	{
-		return storage[(std::size_t)PortName];
-	}
-	
-	template<PortNamesT PortName>
-	T get_converted(identity<pointer>)
-	{
-		return storage[(std::size_t)PortName];
-	}*/
-	
 public:
 	void set(int id, data* d) {
 		assert(in_range_cond(id));
@@ -338,69 +339,21 @@ public:
 		//typedef PortName port_name;
 	};
 	
-	/*template<PortNamesT PortName>
-	data* operator[](id<PortName> ) const {
-		PortNamesT port_name = PortName;
-		assert(in_range_cond((std::size_t)port_name));
-		return storage[((std::size_t)port_name)];
-	}*/
-	
-/*	template<PortNamesT PortName>
-	using port_return_value
-		= return_value
-		<port_des_array[(std::size_t)PortName].descriptor>;
-*/
-#if 0
-private:
-	template<std::size_t PortName>
-	typename port_return_value<PortName>::type
-		_get() const
-	{
-		assert(in_range_cond(PortName));
-		
-		return storage[PortName];
-	/*	return get_converted<PortName>(,
-			identity<typename port_return_value<PortName>
-			::type>())*/
-	}
-public:
-	template<PortNamesT PortName>
-	typename port_return_value<(std::size_t)PortName>::type
-		operator[](id<PortName> ) const
-	{	
-		return _get<(std::size_t)PortName>();
-	}
-#endif
 public:
 	data* operator[](int id) const
 	{	
 		return storage[id];
 	}
 	
-		
-/*	struct return_values
-	{
-		using types = port_return_value
-	}*/
-	
-//	template<class T> struct falsify { static_assert(false, "This code should never be reached"); }
-
-	
-	
-
-		
-
-#if 0
-	
-	template<class T> struct _return_value { falsify<T>(); };
+	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
+	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
 	template<int ...Is>
-	struct _return_value<helpers::seq<Is...>>
+	struct _return_value<helpers::full_seq<Is...>>
 	{
-		typedef std::tuple<typename port_return_value<Is...>::type> type;
+		typedef std::tuple<typename port_return_value<Is>::type...> type;
 	};
-	typedef typename _return_value<helpers::gen_seq<helpers::enum_size<PortNamesT>()>>::type
-		return_value;
-#endif
+	typedef typename _return_value<typename helpers::seq_2<helpers::enum_size<PortNamesT>()>::type>::type
+	return_value;
 };
 
 //! class which the user will have to fill in
@@ -427,6 +380,7 @@ class builder
 {
 	constexpr static const descriptor& instance = Plugin::des;
 	static constexpr port_size_t port_size = get_port_size(instance.arr);
+//	typedef port_array<port_names, port_des> port_array_t;
 	
 	/*
 	 * This shifts the arrays
@@ -494,9 +448,9 @@ class builder
 		//typename port_array_t::return_value port_tuple
 		//	= { typename port_array_t::template port_return_value<Is>::type(nullptr, _sample_count)...};
 		
-		auto tp = std::make_tuple(typename port_array_t::template port_return_value<Is>::type(nullptr, _sample_count)...);
+		typename port_array_t::return_value tp = std::make_tuple(typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...);
 		
-		static_cast<Plugin*>(_instance)->run(_sample_count);
+	//	static_cast<Plugin*>(_instance)->run(tp);
 	}
 	
 	//void _activate(LADSPA_Handle Instance);
