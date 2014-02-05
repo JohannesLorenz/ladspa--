@@ -380,7 +380,8 @@ class builder
 {
 	constexpr static const descriptor& instance = Plugin::des;
 	static constexpr port_size_t port_size = get_port_size(instance.arr);
-//	typedef port_array<port_names, port_des> port_array_t;
+	typedef port_array<typename Plugin::port_names,
+		typename Plugin::port_des> port_array_t;
 	
 	/*
 	 * This shifts the arrays

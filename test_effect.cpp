@@ -37,7 +37,7 @@ struct amplifier
 		size
 	};
 	
-	port_array<port_names, port_des> ports;
+//	port_array<port_names, port_des> ports;
 	
 	/*template<port_names p>
 	struct buffer
