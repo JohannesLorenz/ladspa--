@@ -318,6 +318,7 @@ private:
 		return id >= 0 && id < helpers::enum_size<PortNamesT>();
 	}
 public:
+	typedef PortNamesT port_names_t;
 	template<std::size_t PortName>
 	struct port_return_value
 	{	
@@ -340,9 +341,13 @@ public:
 	};
 	
 public:
-	data* operator[](int id) const
-	{	
+	data* operator[](std::size_t id) const
+	{
 		return storage[id];
+	}
+	data* operator[](port_names_t id) const
+	{	
+		return storage[(std::size_t)id];
 	}
 	
 	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
@@ -357,7 +362,7 @@ public:
 };
 
 //! class which the user will have to fill in
-struct descriptor
+struct descriptor_t
 {
 	unsigned long unique_id;
 	const char * label;
@@ -375,13 +380,31 @@ static constexpr port_size_t get_port_size(const ladspa::port* arr) {
 }
 
 // TODO: capitalization
+/**
+ * The builder class
+ * @brief Builds all things ladspa needs for you parameters
+ * 
+ * You provide parameters via @a Plugin. They will be converted into a ladspa
+ * descriptor. This includes descripting data and function pointers. The
+ * latter means that this class also redirects the callbacks to @a Plugin. So
+ * you have to provide some stuff for @a Plugin (note that the names must be
+ * the same):
+ * 
+ * static constexpr descriptor_t descriptor;
+ * static constexpr port[...]
+ * TODO: rewrite that // TODO: other file
+ * port_array<port_names, static constexpr port[...]> ports; // port_names is an enum, port des
+ * LADSPA_Handle* instantiate(const struct _LADSPA_Descriptor * _descriptor, sample_rate_t _sample_rate) // optional
+ * void sample_size_t sample_count()
+ * 
+ */
 template<class Plugin>
 class builder
 {
-	constexpr static const descriptor& instance = Plugin::des;
+	static constexpr const descriptor_t& instance = Plugin::descriptor;
 	static constexpr port_size_t port_size = get_port_size(instance.arr);
-	typedef port_array<typename Plugin::port_names,
-		typename Plugin::port_des> port_array_t;
+//	typedef port_array<typename Plugin::port_names,
+//		static_cast<const ladspa::port*>(instance.arr)> port_array_t;
 	
 	/*
 	 * This shifts the arrays
@@ -440,18 +463,16 @@ class builder
 	{
 		auto& ports = static_cast<Plugin*>(_instance)->ports;
 		
+	/*	typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
 		
+		typename port_array_t::return_value tp
+			(	// constructors for the save buffers/pointers
+				// they have the pointers as argument, and their lenght
+				// (which will be ignored for pointer_template)
+				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
+			);*/
 		
-		
-		typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
-		
-		
-		//typename port_array_t::return_value port_tuple
-		//	= { typename port_array_t::template port_return_value<Is>::type(nullptr, _sample_count)...};
-		
-		typename port_array_t::return_value tp = std::make_tuple(typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...);
-		
-	//	static_cast<Plugin*>(_instance)->run(tp);
+		static_cast<Plugin*>(_instance)->run(_sample_count);
 	}
 	
 	//void _activate(LADSPA_Handle Instance);
@@ -495,6 +516,47 @@ class builder
 public:
 	static const LADSPA_Descriptor& get_ladspa_descriptor()
 	{ return descriptor_for_ladspa; }
+};
+
+template<class port_array_t>
+class safe_ports
+{
+	//auto& ports = static_cast<Plugin*>(_instance)->ports;
+		
+	//typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
+private:
+	const typename port_array_t::return_value port_tuple;
+	
+	
+	template<int ...Is>
+	safe_ports(const port_array_t& ports, int _sample_count, helpers::full_seq<Is...>)
+	: port_tuple(	// constructors for the save buffers/pointers
+				// they have the pointers as argument, and their lenght
+				// (which will be ignored for pointer_template)
+				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
+			)
+	{
+	}
+	
+	template<std::size_t id>
+	auto get() -> decltype( std::get<id>(port_tuple) ) {
+		return std::get<id>(port_tuple);
+	}
+	
+public:
+	safe_ports(const port_array_t& ports, int _sample_count)
+	: safe_ports(ports, _sample_count, typename helpers::seq_2<helpers::enum_size<typename port_array_t::port_names_t>()>::type())
+	{}
+	
+	/*void operator[port_array_t::port_names_t id]
+	{
+		
+	}*/
+	
+	template<typename port_array_t::port_names_t id>
+	auto get() -> decltype( this->get<(std::size_t)id>() ) {
+		return get<(std::size_t)id>();
+	}
 };
 
 /*

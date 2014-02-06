@@ -4,7 +4,7 @@ using namespace ladspa;
 
 struct amplifier
 {
-	static constexpr port port_des[] =
+	static constexpr port port_descriptors[] =
 	{
 		{ "Gain", port_types::input | port_types::control,
 			{(port_hints::bounded_below 
@@ -17,7 +17,7 @@ struct amplifier
 		final_port
 	};
 
-	static constexpr descriptor des =
+	static constexpr descriptor_t descriptor =
 	{
 		4242, // unique id
 		"amp_mono_pp", // label for lookup
@@ -26,7 +26,7 @@ struct amplifier
 		"Richard Furse (LADSPA example plugins)", // author
 		strings::copyright::gpl3,
 		nullptr, // implementation data
-		port_des
+		port_descriptors
 	};
 	
 	enum class port_names
@@ -37,7 +37,7 @@ struct amplifier
 		size
 	};
 	
-//	port_array<port_names, port_des> ports;
+	port_array<port_names, port_descriptors> ports;
 	
 	/*template<port_names p>
 	struct buffer
@@ -50,6 +50,12 @@ struct amplifier
 	void run(sample_size_t sample_count) const
 	{
 		//data* pfInput = ports[ port_names::in_1 ];
+		
+		safe_ports<decltype(ports)> _ports(ports, sample_count);
+		
+		const const_buffer& pfInput = _ports.get<port_names::in_1>();
+		const buffer& pfOutput = _ports.get<port_names::out_1>();
+		const const_pointer& fGain = _ports.get<port_names::value>();
 		
 		//typedef port_array<port_names, port_des>::id id;
 		
@@ -121,6 +127,9 @@ int main()
  //        std::cout << i << std::endl;
        
 //	std::cout << typeid(port_array<amplifier::port_names, amplifier::port_des>::return_value).name() << std::endl;
+	
+	//std::tuple<ladspa::pointer_template<const float>> tp =
+	//ladspa::pointer_template<const float>(((const float*)(& ports)->ladspa::port_array<PortNamesT, port_des_array>::operator[]<amplifier::port_names, ((const ladspa::port*)(& amplifier::port_des))>(0)), ((int)_sample_count))
 	
 	return 0;
 	
