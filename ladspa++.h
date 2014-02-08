@@ -29,27 +29,73 @@
 namespace helpers
 {
 
+//! default criterium argument, which accepts all numbers
+template<int>
+struct criterium_true {
+	static constexpr bool value = true;
+};
+
+//! the resulting sequence type to test for
 template<int ...Seq>
 struct full_seq
 {
 };
 
-template<unsigned int N, int I=N-1, int ...Seq>
-struct seq_2
+namespace seq_helpers
 {
-	using type = typename seq_2<N, I-1, I, Seq...>::type;
+
+template<int Start, int I, template<int> class Criterium, int ...Seq>
+struct _seq_recurse;
+
+//! @a cond is true => spawn @a I into seq and recurse
+template<int Start, int I, template<int> class Criterium, bool cond, int ...Seq>
+struct _seq_check
+{
+	using type = typename _seq_recurse<Start, I, Criterium, I, Seq...>::type;
 };
 
-template<unsigned int N, int ...Seq>
-struct seq_2<N, -1, Seq...>
+//! @a cond is false => skip @a I in sequence and recurse
+template<int Start, int I, template<int> class Criterium, int ...Seq>
+struct _seq_check<Start, I, Criterium, false, Seq...>
+{
+	using type = typename _seq_recurse<Start, I, Criterium, Seq...>::type;
+};
+
+//! counting down, we have not reached the @a Start -> evaluate @a Criterium
+template<int Start, int I, template<int> class Criterium, int ...Seq>
+struct _seq
+{
+	using type = typename _seq_check<Start, I, Criterium, Criterium<I>::value, Seq...>::type;
+};
+
+//! counting down, we have reached the @a Start
+template<int Start, template<int> class Criterium, int ...Seq>
+struct _seq<Start, Start, Criterium, Seq...>
 {
 	using type = full_seq<Seq...>;
 };
 
+//! sequence recursion, just decrements @a I
+template<int Start, int I, template<int> class Criterium, int ...Seq>
+struct _seq_recurse
+{
+	using type = typename _seq<Start, I-1, Criterium, Seq...>::type;
+};
+
+} // namespace seq_helpers
+
+//! creates maths like range, i.e. [Start, N]
+template<int N, int Start = 1, template<int> class Criterium = criterium_true>
+using math_seq = typename seq_helpers::_seq<Start-1, N, Criterium>::type;
+
+//! creates C like range, i.e. [Start-1, N-1]. Criterium is *not* counted for i-1
+template<int N, int Start = 0, template<int> class Criterium = criterium_true>
+using seq = math_seq<N-1, Start, Criterium>;
+
 // token from [1]
-template<int... Is> struct seq {};
+template<int... Is> struct old_seq {};
 template<int N, int... Is> struct gen_seq : gen_seq<N-1, N-1, Is...> {};
-template<int... Is> struct gen_seq<0, Is...> : seq<Is...> {};
+template<int... Is> struct gen_seq<0, Is...> : old_seq<Is...> {};
 
 //! a quick fix since array's data() member is not constexpr
 template<class T, std::size_t N>
@@ -197,8 +243,8 @@ public:
 		: _data(_in_data), _size(_in_size) {}
 	
 	void assign(T* _in_data) { _data = _in_data; }
-	void set_size(std::size_t _in_size) { _size = _in_size; }
-	
+	//void set_size(std::size_t _in_size) { _size = _in_size; }
+	int set_size(std::size_t _in_size) const { return _size; }
 	std::size_t size() const { return size; }
 	
 /*	T* begin() { return _data; }
@@ -328,8 +374,8 @@ public:
 	template<std::size_t PortName>
 	struct port_return_value
 	{	
-		static constexpr auto arr = port_des_array[PortName];
-		static constexpr auto descr = arr.descriptor;
+		static constexpr auto arr_elem = port_des_array[PortName];
+		static constexpr auto descr = arr_elem.descriptor;
 		
 		typedef return_value<&descr> type;
 	};
@@ -341,7 +387,7 @@ public:
 	{
 		typedef std::tuple<typename port_return_value<Is>::type...> type;
 	};
-	typedef typename _return_value<typename helpers::seq_2<port_size>::type>::type
+	typedef typename _return_value<typename helpers::seq<port_size>>::type
 	return_value;
 private:
 #ifdef SIMPLE
@@ -367,7 +413,7 @@ private:
 	}
 	
 	static constexpr typename std::array<caller, port_size> callers
-		= init_callers(typename helpers::seq_2<port_size>::type{});
+		= init_callers(typename helpers::seq<port_size>{});
 	
 #endif
 	static bool in_range_cond(int id)
@@ -434,12 +480,11 @@ public:
 		= init_callers();*/
 	
 #else
-private:
+public:
 	template<std::size_t id>
 	const typename port_return_value<id>::type& get() const {
 		return std::get<id>(storage);
 	}
-public:
 	template<port_names_t id>
 	const typename port_return_value<(std::size_t)id>::type& get() const {
 		return get<(std::size_t)id>();
@@ -503,7 +548,7 @@ class builder
 	 * This shifts the arrays
 	 */
 	template<port::type PT, int N, class T, int... Is>
-	static constexpr auto _get_elem(helpers::seq<Is...>, T* lhs)
+	static constexpr auto _get_elem(helpers::old_seq<Is...>, T* lhs)
 	-> std::array<decltype(lhs[0].get(port::type_id<PT>())), N>
 	{
 		return {{lhs[Is].get(port::type_id<PT>())...}};
@@ -549,10 +594,15 @@ class builder
 			->ports.set(_port, _data_location);
 	}
 	
+	template<class ...Args> static void do_nothing(Args...) {}
+	
 	template<int ...Is>
-	static void set_sizes(
-		helpers::seq<Is...>)
+	static void set_sizes(Plugin*& pl,
+		sample_size_t _sample_count,
+		helpers::full_seq<Is...>)
 	{
+		// please do not remove this line, it is really necessary!
+		do_nothing(pl->ports.template get<Is>().set_size(_sample_count)...);
 		
 //		auto& ports = static_cast<Plugin*>(_instance)->ports;
 		
@@ -569,13 +619,21 @@ class builder
 	//	static_cast<Plugin*>(_instance)->run(_sample_count);
 	}
 	
+	template<int i>
+	struct criterium_is_buffer
+	{
+		constexpr static bool value = instance.arr[i].descriptor.is(port_types::audio);
+	};
+	
 	//void _activate(LADSPA_Handle Instance);
 	static void _run(LADSPA_Handle _instance,
 		sample_size_t _sample_count)
 	{
-		set_sizes(helpers::gen_seq<port_size>{});
+		Plugin* instance = static_cast<Plugin*>(_instance);
+		
+		set_sizes(instance, _sample_count, helpers::seq<port_size, 0, criterium_is_buffer>{});
 	//	_run_with_seq(_instance, _sample_count, helpers::gen_seq<port_size>{});
-		static_cast<Plugin*>(_instance)->run(_sample_count); // todo: remove sample_count
+		instance->run(_sample_count); // todo: remove sample_count
 	}
 	
 	static constexpr std::array<LADSPA_PortDescriptor, port_size>
@@ -637,7 +695,7 @@ private:
 	
 public:
 	safe_ports(const port_array_t& ports, int _sample_count)
-	: safe_ports(ports, _sample_count, typename helpers::seq_2<helpers::enum_size<typename port_array_t::port_names_t>()>::type())
+	: safe_ports(ports, _sample_count, typename helpers::seq<helpers::enum_size<typename port_array_t::port_names_t>()>())
 	{}
 
 	template<typename port_array_t::port_names_t id>
