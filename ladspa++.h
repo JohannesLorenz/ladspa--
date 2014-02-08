@@ -22,6 +22,7 @@
 #include <bitset>
 #include <cassert>
 #include <tuple>
+#include <iostream> // TODO
 
 #include <ladspa.h>
 
@@ -191,32 +192,42 @@ class buffer_template
 	//! however, this overhead is not much
 	std::size_t _size;
 public:
-	buffer_template(T* _in_data, int _in_size)
+	buffer_template() {}
+	buffer_template(T* _in_data, std::size_t _in_size)
 		: _data(_in_data), _size(_in_size) {}
+	
+	void assign(T* _in_data) { _data = _in_data; }
+	void set_size(std::size_t _in_size) { _size = _in_size; }
 	
 	std::size_t size() const { return size; }
 	
-	T* begin() { return _data; }
+/*	T* begin() { return _data; }
 	const T* begin() const { return _data; }
 	T* end() { return _data + size(); }
 	const T* end() const { return _data + size(); }
 	
 	T* data() { return begin(); }
-	const T* data() const { return begin(); }
+	const T* data() const { return begin(); }*/
+	T* begin() const { return _data; }
+	T* end() const { return _data + size(); }
+	T* data() const { return begin(); }
 };
 
+// TODO: common base class for both?
 template<class T>
 class pointer_template
 {
 	T* _data;
 public:
+	pointer_template() {}
 	pointer_template(T* _in_data)
 		: _data(_in_data) {}
 	pointer_template(T* _in_data, int )
 		: pointer_template(_in_data) {}
+	void assign(T* _in_data) { _data = _in_data; }
 	
-	const T& operator*() const { return _data; }
-	T& operator*() { return _data; }
+	const T& operator*() const { return *_data; }
+	T& operator*() { return *_data; }
 };
 
 typedef buffer_template<data> buffer;
@@ -311,13 +322,8 @@ using return_value = typename return_value_base_type<t1<bm>, bm>::type;
 template<class PortNamesT, const port* port_des_array>
 class port_array
 {
-private:
-	std::array<data*, helpers::enum_size<PortNamesT>()> storage;
-	static bool in_range_cond(int id)
-	{
-		return id >= 0 && id < helpers::enum_size<PortNamesT>();
-	}
 public:
+	constexpr static std::size_t port_size = helpers::enum_size<PortNamesT>();
 	typedef PortNamesT port_names_t;
 	template<std::size_t PortName>
 	struct port_return_value
@@ -325,13 +331,76 @@ public:
 		static constexpr auto arr = port_des_array[PortName];
 		static constexpr auto descr = arr.descriptor;
 		
-	//	static constexpr auto descr = port_des_array[(std::size_t)PortName].descriptor;
 		typedef return_value<&descr> type;
 	};
+	
+	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
+	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
+	template<int ...Is>
+	struct _return_value<helpers::full_seq<Is...>>
+	{
+		typedef std::tuple<typename port_return_value<Is>::type...> type;
+	};
+	typedef typename _return_value<typename helpers::seq_2<port_size>::type>::type
+	return_value;
+private:
+#ifdef SIMPLE
+	std::array<data*, helpers::enum_size<PortNamesT>()> storage;
+#else
+	return_value storage;
+	
+	struct caller
+	{
+		void (&callback)(port_array&, data*);
+	};
+	
+	template<class T>
+	static constexpr typename std::array<caller, port_size> init_callers(T)
+	{
+		static_assert(falsify<T>::value, "This should not be instantiated.");
+	}
+
+	template<int ...Is>
+	static constexpr typename std::array<caller, port_size> init_callers(helpers::full_seq<Is...>)
+	{
+		return {{port_array::set_static<Is>...}};
+	}
+	
+	static constexpr typename std::array<caller, port_size> callers
+		= init_callers(typename helpers::seq_2<port_size>::type{});
+	
+#endif
+	static bool in_range_cond(int id)
+	{
+		return id >= 0 && id < helpers::enum_size<PortNamesT>();
+	}
+	
+#ifdef SIMPLE
+	void set_internal(int id, data* d) {
+		assert(in_range_cond(id));
+
+		storage[id] = d;
+	}
+#else
+	template<int id>
+	void set_internal(data* d) {
+		assert(in_range_cond(id));
+		std::get<id>(storage).assign(d);
+	}
+#endif
 public:
 	void set(int id, data* d) {
-		assert(in_range_cond(id));
-		storage[id] = d;
+#ifdef SIMPLE
+		set_internal(id, d);
+#else
+		callers[id].callback(*this, d);
+#endif
+	}
+
+	template<int id>
+	static void set_static(port_array& p, data* d) {
+		std::cout << "set static" << std::endl;
+		p.set_internal<id>(d);
 	}
 	
 	template<PortNamesT PortName>
@@ -341,6 +410,7 @@ public:
 	};
 	
 public:
+#ifdef SIMPLE
 	data* operator[](std::size_t id) const
 	{
 		return storage[id];
@@ -350,16 +420,39 @@ public:
 		return storage[(std::size_t)id];
 	}
 	
-	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
-	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
-	template<int ...Is>
-	struct _return_value<helpers::full_seq<Is...>>
+/*	struct caller
 	{
-		typedef std::tuple<typename port_return_value<Is>::type...> type;
+		const LADSPA_Descriptor& (&callback)();
 	};
-	typedef typename _return_value<typename helpers::seq_2<helpers::enum_size<PortNamesT>()>::type>::type
-	return_value;
+
+	static constexpr std::array<caller, sizeof...(Args)> init_callers()
+	{
+		return {{builder<Args>::get_ladspa_descriptor...}};
+	}
+	
+	static constexpr std::array<caller, sizeof...(Args)> callers
+		= init_callers();*/
+	
+#else
+private:
+	template<std::size_t id>
+	const typename port_return_value<id>::type& get() const {
+		return std::get<id>(storage);
+	}
+public:
+	template<port_names_t id>
+	const typename port_return_value<(std::size_t)id>::type& get() const {
+		return get<(std::size_t)id>();
+	}
+#endif
 };
+
+#ifndef SIMPLE
+template<class PortNamesT, const port* port_des_array>
+constexpr typename std::array<typename port_array<PortNamesT, port_des_array>::caller, 
+	port_array<PortNamesT, port_des_array>::port_size>
+	port_array<PortNamesT, port_des_array>::callers;
+#endif
 
 //! class which the user will have to fill in
 struct descriptor_t
@@ -457,11 +550,11 @@ class builder
 	}
 	
 	template<int ...Is>
-	static void _run_with_seq(LADSPA_Handle _instance,
-		sample_size_t _sample_count,
+	static void set_sizes(
 		helpers::seq<Is...>)
 	{
-		auto& ports = static_cast<Plugin*>(_instance)->ports;
+		
+//		auto& ports = static_cast<Plugin*>(_instance)->ports;
 		
 	/*	typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
 		
@@ -471,15 +564,18 @@ class builder
 				// (which will be ignored for pointer_template)
 				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
 			);*/
+	//	set_sizes();
 		
-		static_cast<Plugin*>(_instance)->run(_sample_count);
+	//	static_cast<Plugin*>(_instance)->run(_sample_count);
 	}
 	
 	//void _activate(LADSPA_Handle Instance);
 	static void _run(LADSPA_Handle _instance,
 		sample_size_t _sample_count)
 	{
-		_run_with_seq(_instance, _sample_count, helpers::gen_seq<port_size>{});
+		set_sizes(helpers::gen_seq<port_size>{});
+	//	_run_with_seq(_instance, _sample_count, helpers::gen_seq<port_size>{});
+		static_cast<Plugin*>(_instance)->run(_sample_count); // todo: remove sample_count
 	}
 	
 	static constexpr std::array<LADSPA_PortDescriptor, port_size>
@@ -521,12 +617,8 @@ public:
 template<class port_array_t>
 class safe_ports
 {
-	//auto& ports = static_cast<Plugin*>(_instance)->ports;
-		
-	//typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
 private:
 	const typename port_array_t::return_value port_tuple;
-	
 	
 	template<int ...Is>
 	safe_ports(const port_array_t& ports, int _sample_count, helpers::full_seq<Is...>)
@@ -547,12 +639,7 @@ public:
 	safe_ports(const port_array_t& ports, int _sample_count)
 	: safe_ports(ports, _sample_count, typename helpers::seq_2<helpers::enum_size<typename port_array_t::port_names_t>()>::type())
 	{}
-	
-	/*void operator[port_array_t::port_names_t id]
-	{
-		
-	}*/
-	
+
 	template<typename port_array_t::port_names_t id>
 	auto get() -> decltype( this->get<(std::size_t)id>() ) {
 		return get<(std::size_t)id>();

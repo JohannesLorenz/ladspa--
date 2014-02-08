@@ -49,13 +49,27 @@ struct amplifier
 	*/
 	void run(sample_size_t sample_count) const
 	{
-		//data* pfInput = ports[ port_names::in_1 ];
 		
+	//	port_array<port_names, port_descriptors>& _ports = this->ports;
+		
+		const const_buffer& pfInput = ports.get<port_names::in_1>();
+		const buffer& pfOutput = ports.get<port_names::out_1>();
+		const const_pointer& fGain = ports.get<port_names::value>();
+		
+		data* _pfOutput= pfOutput.begin();
+		const data* _pfInput= pfInput.begin();
+		
+		for (sample_size_t i = 0; i < sample_count; i++) 
+		 *(_pfOutput++) = *(_pfInput++) * (*fGain);
+		
+		//data* pfInput = ports[ port_names::in_1 ];
+#if 0	
 		safe_ports<decltype(ports)> _ports(ports, sample_count);
 		
 		const const_buffer& pfInput = _ports.get<port_names::in_1>();
 		const buffer& pfOutput = _ports.get<port_names::out_1>();
 		const const_pointer& fGain = _ports.get<port_names::value>();
+#endif
 		
 		//typedef port_array<port_names, port_des>::id id;
 		
