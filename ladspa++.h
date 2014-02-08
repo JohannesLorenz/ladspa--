@@ -365,11 +365,13 @@ using t1 = typename return_value_access_type<data, bm>::type;
 template<const bitmask<port_types>* bm>
 using return_value = typename return_value_base_type<t1<bm>, bm>::type;
 
-template<class PortNamesT, const port* port_des_array>
+template<class PortNamesT, const port* PortDesArray>
 class port_array
 {
 public:
 	constexpr static std::size_t port_size = helpers::enum_size<PortNamesT>();
+	constexpr static const port* port_des_array = PortDesArray;
+	
 	typedef PortNamesT port_names_t;
 	template<std::size_t PortName>
 	struct port_return_value
@@ -670,6 +672,70 @@ class builder
 public:
 	static const LADSPA_Descriptor& get_ladspa_descriptor()
 	{ return descriptor_for_ladspa; }
+};
+
+template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+class multi_iterator
+{
+private:
+	
+/*	template<int ...Is>
+	safe_ports(const port_array_t& ports, int _sample_count, helpers::full_seq<Is...>)
+	: port_tuple(	// constructors for the save buffers/pointers
+				// they have the pointers as argument, and their lenght
+				// (which will be ignored for pointer_template)
+				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
+			)
+	{
+	}*/
+
+	template<const bitmask<port_types>* bm>
+	using t1 = typename return_value_access_type<data, bm>::type;
+
+	template<int PortName>
+	struct port_return_value
+	{	
+		static constexpr auto arr_elem = port_array_t::port_des_array[PortName];
+		static constexpr auto descr = arr_elem.descriptor;
+		
+		typedef t1<&descr>* type; // data* or const data*
+	};
+	
+	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
+//	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
+	template<int ...Is>
+	struct _return_value
+	{
+		typedef std::tuple<typename port_return_value<Is>::type...> type;
+	};
+	
+	typedef typename _return_value<(int)PortIndexes...>::type
+		return_value;
+	
+	sample_size_t sample_count;
+	return_value pointers;
+	
+	template<std::size_t id>
+	auto get() -> decltype( std::get<id>(pointers) ) {
+		return std::get<id>(pointers);
+	}
+	
+public:
+	multi_iterator(const port_array_t& port_array, sample_size_t _sample_count) : sample_count(_sample_count),
+		pointers(port_array.template get<PortIndexes>().begin()...)
+	{}
+	
+	
+	/*safe_ports(const port_array_t& ports)
+	: safe_ports(ports, _sample_count, typename helpers::seq<helpers::enum_size<typename port_array_t::port_names_t>()>())
+	{}*/
+	
+	
+
+	template<typename port_array_t::port_names_t id>
+	auto get() -> decltype( this->get<(std::size_t)id>() ) {
+		return get<(std::size_t)id>();
+	}
 };
 
 template<class port_array_t>

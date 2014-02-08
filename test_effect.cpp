@@ -59,8 +59,16 @@ struct amplifier
 		data* _pfOutput= pfOutput.begin();
 		const data* _pfInput= pfInput.begin();
 		
+	//	for (sample_size_t i = 0; i < sample_count; i++) 
+	//	 *(_pfOutput++) = *(_pfInput++) * (*fGain);
+		
+		multi_iterator<port_array<port_names, port_descriptors>, port_names::in_1, port_names::out_1> itr(ports, sample_count);
+		
 		for (sample_size_t i = 0; i < sample_count; i++) 
 		 *(_pfOutput++) = *(_pfInput++) * (*fGain);
+		
+	//	for( itr);
+		
 		
 		//data* pfInput = ports[ port_names::in_1 ];
 #if 0	
