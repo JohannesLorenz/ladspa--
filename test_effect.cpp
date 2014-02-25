@@ -37,21 +37,34 @@ struct amplifier
 		size
 	};
 	
-	port_array<port_names, port_descriptors> ports;
+	typedef port_array<port_names, port_descriptors> ports_t;
+	ports_t ports;
 	
 	void run(sample_size_t sample_count) const
 	{
-		const const_buffer& pfInput = ports.get<port_names::in_1>();
+	/*	const const_buffer& pfInput = ports.get<port_names::in_1>();
 		const buffer& pfOutput = ports.get<port_names::out_1>();
 		const const_pointer& fGain = ports.get<port_names::value>();
 		
 		data* _pfOutput= pfOutput.begin();
-		const data* _pfInput= pfInput.begin();
+		const data* _pfInput= pfInput.begin(); */
 		
-		multi_iterator<port_array<port_names, port_descriptors>, port_names::in_1, port_names::out_1> itr(ports, sample_count);
+	/*	multi_iterator<ports_t,
+			port_names::in_1,
+			port_names::out_1>
+			itr(ports, sample_count);
 		
 		for (sample_size_t i = 0; i < sample_count; i++) 
-		 *(_pfOutput++) = *(_pfInput++) * (*fGain);
+		 *(_pfOutput++) = *(_pfInput++) * (*fGain);*/
+		
+		auto container = ports.samples<
+			port_names::in_1,
+			port_names::out_1>(sample_count);
+		
+		for( auto& ptrs : container ) {
+			ptrs.get<port_names::out_1>() = ptrs.get<port_names::in_1>() * (*(ports.get<port_names::value>()));
+		}
+ 	//	for( multi_iterator<ports_t, port_names::in_1, port_names::out_1> itr = container.begin(); itr != container.end(); ++itr) { /*itr.get<port_names::in_1>();*/ }
 	}
 };
 

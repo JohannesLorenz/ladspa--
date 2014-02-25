@@ -18,16 +18,19 @@
 /* Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110, USA  */
 /*************************************************************************/
 
+#include <tuple>
 #include <array>
 #include <bitset>
 #include <cassert>
-#include <tuple>
-#include <iostream> // TODO
 
 #include <ladspa.h>
 
 namespace helpers
 {
+
+/*
+ * sequences
+ */
 
 //! default criterium argument, which accepts all numbers
 template<int>
@@ -92,11 +95,25 @@ using math_seq = typename seq_helpers::_seq<Start-1, N, Criterium>::type;
 template<int N, int Start = 0, template<int> class Criterium = criterium_true>
 using seq = math_seq<N-1, Start, Criterium>;
 
-// token from [1]
-template<int... Is> struct old_seq {};
-template<int N, int... Is> struct gen_seq : gen_seq<N-1, N-1, Is...> {};
-template<int... Is> struct gen_seq<0, Is...> : old_seq<Is...> {};
+template<class ...Args> static void do_nothing(Args...) {}
 
+/*
+ * avoiding instantiations
+ */
+template<typename ...> struct falsify : std::false_type { };
+template<typename T, T Arg> struct falsify_id : std::false_type { };
+template<typename ...Args>
+struct dont_instantiate_me {
+	static_assert(falsify<Args...>::value, "This should not be instantiated.");
+};
+template<typename T, T Arg>
+struct dont_instantiate_me_id {
+	static_assert(falsify_id<T, Arg>::value, "This should not be instantiated.");
+};
+
+/*
+ * accessing helpers
+ */
 //! a quick fix since array's data() member is not constexpr
 template<class T, std::size_t N>
 constexpr const T* get_data(const std::array<T, N>& a)
@@ -111,7 +128,7 @@ constexpr std::size_t enum_size() { return (std::size_t)EnumClass::size; }
 //! note: if we need multiple of those, inherit from a base class
 template <typename T>
 class has_instantiate
-{ // source: [2]
+{ // source: [1]
 	typedef char one;
 	typedef long two;
 
@@ -126,29 +143,6 @@ using en_if_has = typename std::enable_if<HaveClass<T>::value>::type;
 
 template <class T, template<class > class HaveClass>
 using en_if_doesnt_have = typename std::enable_if<!HaveClass<T>::value>::type;
-
-namespace foreach
-{
-template<std::size_t I = 0, typename FuncT, typename... Tp>
-inline typename std::enable_if<I == sizeof...(Tp), void>::type
-_for_each(std::tuple<Tp...> &, FuncT) // Unused arguments are given no names.
-{ }
-
-template<std::size_t I = 0, typename FuncT, typename... Tp>
-inline typename std::enable_if<I < sizeof...(Tp), void>::type
-_for_each(std::tuple<Tp...>& t, FuncT& f)
-{
-	if(!std::get<I>(t))
-	 _for_each<I + 1, FuncT, Tp...>(t, f);
-}
-
-template<std::size_t I = 0, typename FuncT, typename... Tp>
-inline typename std::enable_if<I < sizeof...(Tp), void>::type
-for_each(std::tuple<Tp...>& t, FuncT& f)
-{
-	_for_each(t,f);
-}
-}
 
 } // namespace helpers
 
@@ -180,13 +174,7 @@ public:
 		return bitmask<T>(l.bits|r.bits);
 	}
 };
-/*
-template <template<class > >
-using en_if_is = typename std::enable_if<HaveClass<T>::value>::type;
 
-template <class T, template<class > class HaveClass>
-using en_if_doesnt_have = typename std::enable_if<!HaveClass<T>::value>::type;
-*/
 struct properties
 {
 	typedef bitmask<properties> m;
@@ -304,13 +292,8 @@ struct port
 	constexpr bool is_final() const { return (name == nullptr); }
 	
 	template<type I> struct type_id {};
-	template<type T> struct falsify_id {
-		static_assert(true, "This code should never be reached");
-	};
 	
-	// get function and overloads
-	template<class T, type PT>
-	T& get(type_id<PT>) const { falsify_id<PT>(); }
+	// get function overloads
 	constexpr const char* get(type_id<type::name>) const { return name; }
 	constexpr LADSPA_PortDescriptor get(type_id<type::descriptor>) const {
 		return descriptor.get_bits();
@@ -325,6 +308,11 @@ struct port
 //! port marking the end, recognized via the nullptr
 static constexpr port final_port = { nullptr, 0, {0,0,0} };
 
+template<const port* PortDesArray, int PortName>
+constexpr const bitmask<port_types>* type_at()
+{
+	return &PortDesArray[PortName].descriptor;
+}
 
 /*
  *  Return value specialisations for port_array
@@ -360,42 +348,197 @@ struct return_value_access_type
 	typedef base_type type;
 };
 
-template<const bitmask<port_types>* bm>
-using t1 = typename return_value_access_type<data, bm>::type;
-template<const bitmask<port_types>* bm>
-using return_value = typename return_value_base_type<t1<bm>, bm>::type;
+template<class PortNamesT, const port* PortDesArray>
+class port_array;
+
+template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+class port_ptrs
+{
+	helpers::dont_instantiate_me<port_array_t> s;
+};
+
+template<class PortNamesT, const port* PortDesArray,
+	typename port_array<PortNamesT, PortDesArray>::port_names_t ...PortIndexes>
+class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
+{	
+	template <std::size_t Type, std::size_t... Others>
+	struct contains;
+
+	template <std::size_t Type>
+	struct contains<Type>
+	{
+		static constexpr int id = -1;
+	};
+
+	template <std::size_t Type, std::size_t ... Others>
+	struct contains<Type, Type, Others...>
+	{
+		static constexpr int id = 0;
+	};
+
+	template <std::size_t Type, std::size_t First, std::size_t ... Others>
+	struct contains<Type, First, Others...>
+	{
+		static constexpr int id = contains<Type, Others...>::id + 1;
+	};
+	
+	class type_helpers
+	{
+		template<const bitmask<port_types>* bm>
+		using t1 = typename return_value_access_type<data, bm>::type;
+	public:
+		template<std::size_t PortName>
+		class type_at_port
+		{	
+			static constexpr auto arr_elem = PortDesArray[PortName];
+			static constexpr auto descr = arr_elem.descriptor;
+		public:
+			typedef t1<&descr> type; // data* or const data*
+		};
+
+		template<std::size_t ...Is>
+		struct _storage_t
+		{
+			typedef typename std::tuple
+				<typename type_at_port<Is>::type*...> type;
+		};
+	};
+
+	template<int PortName>
+	using my_type_at = typename type_helpers::template type_at_port<PortName>::type;
+	
+	typedef typename type_helpers::template _storage_t<(int)PortIndexes...>::type
+	storage_t;
+	
+	storage_t pointers; //!< valid if we are not at the end()
+			
+	template<std::size_t id>
+	typename std::tuple_element<contains<id, (std::size_t)PortIndexes...>::id, decltype(port_ptrs::pointers)>::type& get() {
+		return std::get<contains<id, (std::size_t)PortIndexes...>::id>(port_ptrs::pointers);
+	}
+	
+	typedef port_array<PortNamesT, PortDesArray> port_array_t;
+	
+public:
+	port_ptrs(const port_array_t& port_array)
+		: pointers(port_array.template get<PortIndexes>().begin()...) {}
+	port_ptrs() {}
+	
+	void operator++()
+	{
+		helpers::do_nothing(++(get<PortIndexes>())...);
+	}
+	
+	template<typename port_array_t::port_names_t id>
+	typename std::tuple_element<contains<(std::size_t)id, (std::size_t)PortIndexes...>::id, decltype(port_ptrs::pointers)>::type& get() {
+		return get<(std::size_t)id>();
+	}
+};
+
+template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+class multi_iterator
+{
+private:
+	
+	const sample_size_t sample_count; //! note: this parameter could be obsolete, or useful...
+	
+	typedef multi_iterator<port_array_t, PortIndexes...> m_type;
+	
+	port_ptrs<port_array_t, PortIndexes...> _port_ptrs;
+	
+	std::size_t position; //!< valid if we are not at the end()
+	
+	//template<class Ptr>
+	//void increase_ptr(Ptr& p) { ++p; };
+
+public:
+	bool operator!=(const m_type& other)
+	{
+		return position != other.position;
+	}
+	
+	m_type& operator++()
+	{
+		++position;
+		++_port_ptrs;
+		return *this;
+	}
+	
+	port_ptrs<port_array_t, PortIndexes...>& operator*() { return _port_ptrs; } // TODO: const?
+	
+	//! begin iterator
+	multi_iterator(const port_array_t& port_array, sample_size_t _sample_count) : sample_count(_sample_count),
+		_port_ptrs(port_array),
+		position(0)
+	{}
+	
+	//! end iterator
+	multi_iterator(sample_size_t _sample_count)
+	: sample_count(_sample_count),
+	 position(_sample_count)
+	{
+	}
+};
+
+template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+class samples_container
+{
+	const port_array_t& port_array;
+	const sample_size_t& sample_count;
+	typedef multi_iterator<port_array_t, PortIndexes...> multi_itr_type;
+public:
+	samples_container(const port_array_t& pa, sample_size_t sc) : port_array(pa), sample_count(sc) {}
+	multi_itr_type begin() { return multi_itr_type(port_array, sample_count); }
+	multi_itr_type end() { return multi_itr_type(sample_count); }
+};
 
 template<class PortNamesT, const port* PortDesArray>
 class port_array
 {
-public:
+private: // TODO: what can be private?
+	class type_helpers
+	{
+	
+		template<const bitmask<port_types>* bm>
+		using t1 = typename return_value_access_type<data, bm>::type;
+		template<const bitmask<port_types>* bm>
+		using return_value_preparation = typename return_value_base_type<t1<bm>, bm>::type;
+	public:
+		template<std::size_t PortName>
+		class type_at_port
+		{	
+			static constexpr auto arr_elem = PortDesArray[PortName];
+			static constexpr auto descr = arr_elem.descriptor;
+		public:
+			typedef return_value_preparation<&descr> type;
+		};
+	
+		template<class T> struct _storage_t {
+			helpers::dont_instantiate_me<T> x;
+		};
+		template<int ...Is>
+		struct _storage_t<helpers::full_seq<Is...>>
+		{
+			typedef std::tuple<typename type_at_port<Is>::type...> type;
+		};
+	};
+	
 	constexpr static std::size_t port_size = helpers::enum_size<PortNamesT>();
 	constexpr static const port* port_des_array = PortDesArray;
 	
-	typedef PortNamesT port_names_t;
-	template<std::size_t PortName>
-	struct port_return_value
-	{	
-		static constexpr auto arr_elem = port_des_array[PortName];
-		static constexpr auto descr = arr_elem.descriptor;
-		
-		typedef return_value<&descr> type;
-	};
+	//! shortening
+	template<int PortName>
+	using my_type_at = typename type_helpers::template type_at_port<PortName>::type;
 	
-	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
-	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
-	template<int ...Is>
-	struct _return_value<helpers::full_seq<Is...>>
-	{
-		typedef std::tuple<typename port_return_value<Is>::type...> type;
-	};
-	typedef typename _return_value<typename helpers::seq<port_size>>::type
-	return_value;
+	typedef typename type_helpers::template _storage_t<
+		typename helpers::template seq<port_size>>::type storage_t;
 private:
-#ifdef SIMPLE
-	std::array<data*, helpers::enum_size<PortNamesT>()> storage;
-#else
-	return_value storage;
+	storage_t storage;
+	
+	template<int id>
+	static void set_static(port_array& p, data* d) {
+		p.set_internal<id>(d);
+	}
 	
 	struct caller
 	{
@@ -405,7 +548,9 @@ private:
 	template<class T>
 	static constexpr typename std::array<caller, port_size> init_callers(T)
 	{
-		static_assert(falsify<T>::value, "This should not be instantiated.");
+		static_assert(helpers::falsify<T>::value,
+			"This should not be instantiated.");
+		return {}; // constexpr function must have return value
 	}
 
 	template<int ...Is>
@@ -413,42 +558,24 @@ private:
 	{
 		return {{port_array::set_static<Is>...}};
 	}
-	
+
 	static constexpr typename std::array<caller, port_size> callers
 		= init_callers(typename helpers::seq<port_size>{});
 	
-#endif
 	static bool in_range_cond(int id)
 	{
 		return id >= 0 && id < helpers::enum_size<PortNamesT>();
 	}
 	
-#ifdef SIMPLE
-	void set_internal(int id, data* d) {
-		assert(in_range_cond(id));
-
-		storage[id] = d;
-	}
-#else
 	template<int id>
 	void set_internal(data* d) {
 		assert(in_range_cond(id));
 		std::get<id>(storage).assign(d);
 	}
-#endif
 public:
+	typedef PortNamesT port_names_t;
 	void set(int id, data* d) {
-#ifdef SIMPLE
-		set_internal(id, d);
-#else
 		callers[id].callback(*this, d);
-#endif
-	}
-
-	template<int id>
-	static void set_static(port_array& p, data* d) {
-		std::cout << "set static" << std::endl;
-		p.set_internal<id>(d);
 	}
 	
 	template<PortNamesT PortName>
@@ -456,50 +583,28 @@ public:
 	{
 		//typedef PortName port_name;
 	};
-	
-public:
-#ifdef SIMPLE
-	data* operator[](std::size_t id) const
-	{
-		return storage[id];
-	}
-	data* operator[](port_names_t id) const
-	{	
-		return storage[(std::size_t)id];
-	}
-	
-/*	struct caller
-	{
-		const LADSPA_Descriptor& (&callback)();
-	};
 
-	static constexpr std::array<caller, sizeof...(Args)> init_callers()
-	{
-		return {{builder<Args>::get_ladspa_descriptor...}};
-	}
-	
-	static constexpr std::array<caller, sizeof...(Args)> callers
-		= init_callers();*/
-	
-#else
-public:
 	template<std::size_t id>
-	const typename port_return_value<id>::type& get() const {
+	const my_type_at<id>& get() const {
 		return std::get<id>(storage);
 	}
 	template<port_names_t id>
-	const typename port_return_value<(std::size_t)id>::type& get() const {
+	const my_type_at<(std::size_t)id>& get() const {
 		return get<(std::size_t)id>();
 	}
-#endif
+	
+	typedef port_array<PortNamesT, PortDesArray> m_type;
+	
+	template<port_names_t ...port_ids>
+	samples_container<m_type, port_ids...> samples(sample_size_t sample_count) const {
+		return samples_container<m_type, port_ids...>(*this, sample_count);
+	}
 };
 
-#ifndef SIMPLE
 template<class PortNamesT, const port* port_des_array>
 constexpr typename std::array<typename port_array<PortNamesT, port_des_array>::caller, 
 	port_array<PortNamesT, port_des_array>::port_size>
 	port_array<PortNamesT, port_des_array>::callers;
-#endif
 
 //! class which the user will have to fill in
 struct descriptor_t
@@ -522,7 +627,7 @@ static constexpr port_size_t get_port_size(const ladspa::port* arr) {
 // TODO: capitalization
 /**
  * The builder class
- * @brief Builds all things ladspa needs for you parameters
+ * @brief Builds all things ladspa needs for your parameters
  * 
  * You provide parameters via @a Plugin. They will be converted into a ladspa
  * descriptor. This includes descripting data and function pointers. The
@@ -550,7 +655,7 @@ class builder
 	 * This shifts the arrays
 	 */
 	template<port::type PT, int N, class T, int... Is>
-	static constexpr auto _get_elem(helpers::old_seq<Is...>, T* lhs)
+	static constexpr auto _get_elem(helpers::full_seq<Is...>, T* lhs)
 	-> std::array<decltype(lhs[0].get(port::type_id<PT>())), N>
 	{
 		return {{lhs[Is].get(port::type_id<PT>())...}};
@@ -558,9 +663,9 @@ class builder
 
 	template<port::type PT, int N, class T>
 	static constexpr auto get_elem(T* lhs)
-	-> decltype( _get_elem<PT, N>(helpers::gen_seq<N>{}, lhs) )
+	-> decltype( _get_elem<PT, N>(helpers::seq<N>{}, lhs) )
 	{
-		return _get_elem<PT, N>(helpers::gen_seq<N>{}, lhs);
+		return _get_elem<PT, N>(helpers::seq<N>{}, lhs);
 	}
 	
 	/*
@@ -596,15 +701,13 @@ class builder
 			->ports.set(_port, _data_location);
 	}
 	
-	template<class ...Args> static void do_nothing(Args...) {}
-	
 	template<int ...Is>
 	static void set_sizes(Plugin*& pl,
 		sample_size_t _sample_count,
 		helpers::full_seq<Is...>)
 	{
 		// please do not remove this line, it is really necessary!
-		do_nothing(pl->ports.template get<Is>().set_size(_sample_count)...);
+		helpers::do_nothing(pl->ports.template get<Is>().set_size(_sample_count)...);
 		
 //		auto& ports = static_cast<Plugin*>(_instance)->ports;
 		
@@ -672,70 +775,6 @@ class builder
 public:
 	static const LADSPA_Descriptor& get_ladspa_descriptor()
 	{ return descriptor_for_ladspa; }
-};
-
-template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
-class multi_iterator
-{
-private:
-	
-/*	template<int ...Is>
-	safe_ports(const port_array_t& ports, int _sample_count, helpers::full_seq<Is...>)
-	: port_tuple(	// constructors for the save buffers/pointers
-				// they have the pointers as argument, and their lenght
-				// (which will be ignored for pointer_template)
-				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
-			)
-	{
-	}*/
-
-	template<const bitmask<port_types>* bm>
-	using t1 = typename return_value_access_type<data, bm>::type;
-
-	template<int PortName>
-	struct port_return_value
-	{	
-		static constexpr auto arr_elem = port_array_t::port_des_array[PortName];
-		static constexpr auto descr = arr_elem.descriptor;
-		
-		typedef t1<&descr>* type; // data* or const data*
-	};
-	
-	template<typename T> struct falsify : std::false_type { }; // TODO: other falsify is wrong
-//	template<class T> struct _return_value { static_assert(falsify<T>::value, "This should not be instantiated."); };
-	template<int ...Is>
-	struct _return_value
-	{
-		typedef std::tuple<typename port_return_value<Is>::type...> type;
-	};
-	
-	typedef typename _return_value<(int)PortIndexes...>::type
-		return_value;
-	
-	sample_size_t sample_count;
-	return_value pointers;
-	
-	template<std::size_t id>
-	auto get() -> decltype( std::get<id>(pointers) ) {
-		return std::get<id>(pointers);
-	}
-	
-public:
-	multi_iterator(const port_array_t& port_array, sample_size_t _sample_count) : sample_count(_sample_count),
-		pointers(port_array.template get<PortIndexes>().begin()...)
-	{}
-	
-	
-	/*safe_ports(const port_array_t& ports)
-	: safe_ports(ports, _sample_count, typename helpers::seq<helpers::enum_size<typename port_array_t::port_names_t>()>())
-	{}*/
-	
-	
-
-	template<typename port_array_t::port_names_t id>
-	auto get() -> decltype( this->get<(std::size_t)id>() ) {
-		return get<(std::size_t)id>();
-	}
 };
 
 template<class port_array_t>
@@ -821,7 +860,7 @@ public:
 	static const LADSPA_Descriptor* get_ladspa_descriptor(
 		plugin_index_t index)
 	{
-		return (index < 0 || index >= sizeof...(Args))
+		return (index >= sizeof...(Args))
 			? nullptr
 			: &callers[index].callback();
 	}
@@ -839,8 +878,6 @@ struct correctness_checker
 }
 
 // sources:
-// [1] http://stackoverflow.com/questions/17173697/
-//     find-out-in-c-if-binary-number-is-prefix-of-another
-// [2] http://stackoverflow.com/questions/257288/
+// [1] http://stackoverflow.com/questions/257288/
 //     is-it-possible-to-write-a-c-template
 //     -to-check-for-a-functions-existence[]
