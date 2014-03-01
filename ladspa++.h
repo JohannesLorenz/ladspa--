@@ -248,12 +248,12 @@ public:
 	T& operator[](std::size_t n) { return _data[n]; }
 	const T& operator[](std::size_t n) const { return _data[n]; }
 
-//	T* begin() { return _data; }
-	 T* begin() const { return _data; }
-//	T* end() { return _data + size(); }
-	 T* end() const { return _data + size(); }
-//	T* data() { return begin(); }
-	 T* data() const { return begin(); }
+	T* begin() { return _data; }
+	const T* begin() const { return _data; }
+	T* end() { return _data + size(); }
+	const T* end() const { return _data + size(); }
+	T* data() { return begin(); }
+	const T* data() const { return begin(); }
 };
 
 //! A class that behaves like a reference to @a T.
@@ -514,6 +514,8 @@ public:
 	multi_itr_type end() const { return multi_itr_type(sample_count); }
 };
 
+//! A class that contains all ports, including their information and buffers.
+//! This includes the buffer size.
 template<class PortNamesT, const port_info_t* PortDesArray>
 class port_array
 {
@@ -588,7 +590,7 @@ private:
 	static constexpr typename std::array<caller, port_size> callers
 		= init_callers(typename helpers::seq<port_size>{});
 	
-	static bool in_range_cond(int id)
+	static constexpr bool in_range_cond(int id)
 	{
 		return id >= 0 && id < helpers::enum_size<PortNamesT>();
 	}
@@ -606,21 +608,21 @@ public:
 	}
 	
 	template<std::size_t id>
-	const my_type_at<id> get() const {
+	my_type_at<id> get() const {
 		my_type_at<id> ret_val = std::get<id>(storage);
 		// buffer size is usually not set - set it
 		ret_val.set_size(_current_sample_count);
 		return ret_val;
 	}
 	template<port_names_t id>
-	const my_type_at<(std::size_t)id> get() const {
+	my_type_at<(std::size_t)id> get() const {
 		return get<(std::size_t)id>();
 	}
 	
 	typedef port_array<PortNamesT, PortDesArray> m_type;
 	
 	template<port_names_t ...port_ids>
-	const samples_container<m_type, port_ids...> samples() const {
+	samples_container<m_type, port_ids...> samples() {
 		return samples_container<m_type, port_ids...>(
 			*this, _current_sample_count);
 	}

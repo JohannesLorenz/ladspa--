@@ -40,7 +40,7 @@ struct amplifier
 	typedef port_array<port_names, port_info> ports_t;
 	ports_t ports;
 	
-	void run() const
+	void run()
 	{
 		// the classic way
 /*
