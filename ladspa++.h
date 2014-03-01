@@ -155,6 +155,9 @@ typedef unsigned long sample_rate_t;
 typedef unsigned long plugin_index_t;
 typedef LADSPA_Data data;
 
+//! A simple, type safe implementation of a bitmask.
+//! It purpose is to be dependent on a class T, which means that bitmasks from
+//! different contexts can not be put into one operator.
 template<class T>
 class bitmask
 {
@@ -175,6 +178,8 @@ public:
 	}
 };
 
+//! Struct containing bits for ladspa properties.
+//! These specify optional properties of the plugin.
 struct properties
 {
 	typedef bitmask<properties> m;
@@ -183,6 +188,8 @@ struct properties
 	static constexpr m hard_rt_capable = LADSPA_PROPERTY_HARD_RT_CAPABLE;
 };
 
+//! Struct containing bits for ladspa's port types.
+//! These describe the basic communication type of a port.
 struct port_types
 {
 	typedef bitmask<port_types> m;
@@ -194,6 +201,8 @@ struct port_types
 	static constexpr m audio = LADSPA_PORT_AUDIO;
 };
 
+//! Struct containing bits for ladspa's port hints.
+//! These give hints about the port's data range.
 struct port_hints
 {
 	typedef bitmask<port_hints> m;
@@ -216,8 +225,9 @@ struct port_hints
 	static constexpr m default_440 = LADSPA_HINT_DEFAULT_440;
 };
 
-//! class to access a whole buffer
-//! can be hard copied, this will be cheap
+//! Class to access a whole buffer of @a T, like std::vector.
+//! Can be hard copied, this will be cheap.
+//! The class can contain a size information, or not.
 template<class T>
 class buffer_template
 {
@@ -231,23 +241,22 @@ public:
 		: _data(_in_data), _size(_in_size) {}
 	
 	void assign(T* _in_data) { _data = _in_data; }
-	//void set_size(std::size_t _in_size) { _size = _in_size; }
-	int set_size(std::size_t _in_size) const { return _size; }
-	std::size_t size() const { return size; }
+	void set_size(std::size_t _in_size) { _size = _in_size; }
+//	void set_size(std::size_t _in_size) const { return _size; }
+	std::size_t size() const { return _size; }
 	
-/*	T* begin() { return _data; }
-	const T* begin() const { return _data; }
-	T* end() { return _data + size(); }
-	const T* end() const { return _data + size(); }
-	
-	T* data() { return begin(); }
-	const T* data() const { return begin(); }*/
-	T* begin() const { return _data; }
-	T* end() const { return _data + size(); }
-	T* data() const { return begin(); }
+	T& operator[](std::size_t n) { return _data[n]; }
+	const T& operator[](std::size_t n) const { return _data[n]; }
+
+//	T* begin() { return _data; }
+	 T* begin() const { return _data; }
+//	T* end() { return _data + size(); }
+	 T* end() const { return _data + size(); }
+//	T* data() { return begin(); }
+	 T* data() const { return begin(); }
 };
 
-// TODO: common base class for both?
+//! A class that behaves like a reference to @a T.
 template<class T>
 class pointer_template
 {
@@ -260,8 +269,10 @@ public:
 		: pointer_template(_in_data) {}
 	void assign(T* _in_data) { _data = _in_data; }
 	
-	const T& operator*() const { return *_data; }
-	T& operator*() { return *_data; }
+	void set_size(std::size_t _in_size) const {}
+
+	operator const T&() const { return *_data; }
+	operator T&() { return *_data; }
 };
 
 typedef buffer_template<data> buffer;
@@ -269,7 +280,8 @@ typedef buffer_template<const data> const_buffer;
 typedef pointer_template<data> pointer;
 typedef pointer_template<const data> const_pointer;
 
-struct port
+//! A class which describes a port.
+struct port_info_t
 {
 	struct range_hint_t
 	{
@@ -306,13 +318,15 @@ struct port
 };
 
 //! port marking the end, recognized via the nullptr
-static constexpr port final_port = { nullptr, 0, {0,0,0} };
+static constexpr port_info_t final_port = { nullptr, 0, {0,0,0} };
 
-template<const port* PortDesArray, int PortName>
+template<const port_info_t* PortDesArray, int PortName>
 constexpr const bitmask<port_types>* type_at()
 {
 	return &PortDesArray[PortName].descriptor;
 }
+
+// TODO: what should be hidden from user -> helpers??
 
 /*
  *  Return value specialisations for port_array
@@ -348,7 +362,7 @@ struct return_value_access_type
 	typedef base_type type;
 };
 
-template<class PortNamesT, const port* PortDesArray>
+template<class PortNamesT, const port_info_t* PortDesArray>
 class port_array;
 
 template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
@@ -357,7 +371,7 @@ class port_ptrs
 	helpers::dont_instantiate_me<port_array_t> s;
 };
 
-template<class PortNamesT, const port* PortDesArray,
+template<class PortNamesT, const port_info_t* PortDesArray,
 	typename port_array<PortNamesT, PortDesArray>::port_names_t ...PortIndexes>
 class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
 {	
@@ -386,6 +400,7 @@ class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
 	{
 		template<const bitmask<port_types>* bm>
 		using t1 = typename return_value_access_type<data, bm>::type;
+		
 	public:
 		template<std::size_t PortName>
 		class type_at_port
@@ -393,7 +408,7 @@ class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
 			static constexpr auto arr_elem = PortDesArray[PortName];
 			static constexpr auto descr = arr_elem.descriptor;
 		public:
-			typedef t1<&descr> type; // data* or const data*
+			typedef t1<&descr> type; // data or const data
 		};
 
 		template<std::size_t ...Is>
@@ -409,15 +424,25 @@ class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
 	
 	typedef typename type_helpers::template _storage_t<(int)PortIndexes...>::type
 	storage_t;
-	
+
 	storage_t pointers; //!< valid if we are not at the end()
 			
+	typedef port_array<PortNamesT, PortDesArray> port_array_t;
+	
 	template<std::size_t id>
-	typename std::tuple_element<contains<id, (std::size_t)PortIndexes...>::id, decltype(port_ptrs::pointers)>::type& get() {
+	my_type_at<id>*& get_ptr() {
 		return std::get<contains<id, (std::size_t)PortIndexes...>::id>(port_ptrs::pointers);
 	}
 	
-	typedef port_array<PortNamesT, PortDesArray> port_array_t;
+	template<typename port_array_t::port_names_t id>
+	my_type_at<(std::size_t)id>*& get_ptr() {
+		return get_ptr<(std::size_t)id>();
+	}
+	
+	template<std::size_t id>
+	my_type_at<id>& get() {
+		return *get_ptr<id>();
+	}
 	
 public:
 	port_ptrs(const port_array_t& port_array)
@@ -426,11 +451,11 @@ public:
 	
 	void operator++()
 	{
-		helpers::do_nothing(++(get<PortIndexes>())...);
+		helpers::do_nothing(++(get_ptr<PortIndexes>())...);
 	}
 	
 	template<typename port_array_t::port_names_t id>
-	typename std::tuple_element<contains<(std::size_t)id, (std::size_t)PortIndexes...>::id, decltype(port_ptrs::pointers)>::type& get() {
+	my_type_at<(std::size_t)id>& get() {
 		return get<(std::size_t)id>();
 	}
 };
@@ -447,9 +472,6 @@ private:
 	port_ptrs<port_array_t, PortIndexes...> _port_ptrs;
 	
 	std::size_t position; //!< valid if we are not at the end()
-	
-	//template<class Ptr>
-	//void increase_ptr(Ptr& p) { ++p; };
 
 public:
 	bool operator!=(const m_type& other)
@@ -484,15 +506,15 @@ template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
 class samples_container
 {
 	const port_array_t& port_array;
-	const sample_size_t& sample_count;
+	const sample_size_t sample_count;
 	typedef multi_iterator<port_array_t, PortIndexes...> multi_itr_type;
 public:
 	samples_container(const port_array_t& pa, sample_size_t sc) : port_array(pa), sample_count(sc) {}
-	multi_itr_type begin() { return multi_itr_type(port_array, sample_count); }
-	multi_itr_type end() { return multi_itr_type(sample_count); }
+	multi_itr_type begin() const { return multi_itr_type(port_array, sample_count); }
+	multi_itr_type end() const { return multi_itr_type(sample_count); }
 };
 
-template<class PortNamesT, const port* PortDesArray>
+template<class PortNamesT, const port_info_t* PortDesArray>
 class port_array
 {
 private: // TODO: what can be private?
@@ -524,7 +546,7 @@ private: // TODO: what can be private?
 	};
 	
 	constexpr static std::size_t port_size = helpers::enum_size<PortNamesT>();
-	constexpr static const port* port_des_array = PortDesArray;
+	constexpr static const port_info_t* port_des_array = PortDesArray;
 	
 	//! shortening
 	template<int PortName>
@@ -533,7 +555,11 @@ private: // TODO: what can be private?
 	typedef typename type_helpers::template _storage_t<
 		typename helpers::template seq<port_size>>::type storage_t;
 private:
+	/*
+	 * data 
+	 */
 	storage_t storage;
+	int _current_sample_count;
 	
 	template<int id>
 	static void set_static(port_array& p, data* d) {
@@ -572,36 +598,41 @@ private:
 		assert(in_range_cond(id));
 		std::get<id>(storage).assign(d);
 	}
+	
 public:
 	typedef PortNamesT port_names_t;
 	void set(int id, data* d) {
 		callers[id].callback(*this, d);
 	}
 	
-	template<PortNamesT PortName>
-	struct id
-	{
-		//typedef PortName port_name;
-	};
-
 	template<std::size_t id>
-	const my_type_at<id>& get() const {
-		return std::get<id>(storage);
+	const my_type_at<id> get() const {
+		my_type_at<id> ret_val = std::get<id>(storage);
+		// buffer size is usually not set - set it
+		ret_val.set_size(_current_sample_count);
+		return ret_val;
 	}
 	template<port_names_t id>
-	const my_type_at<(std::size_t)id>& get() const {
+	const my_type_at<(std::size_t)id> get() const {
 		return get<(std::size_t)id>();
 	}
 	
 	typedef port_array<PortNamesT, PortDesArray> m_type;
 	
 	template<port_names_t ...port_ids>
-	samples_container<m_type, port_ids...> samples(sample_size_t sample_count) const {
-		return samples_container<m_type, port_ids...>(*this, sample_count);
+	const samples_container<m_type, port_ids...> samples() const {
+		return samples_container<m_type, port_ids...>(
+			*this, _current_sample_count);
+	}
+	
+	void set_current_sample_count(sample_size_t s) { 
+		_current_sample_count = s; }
+	sample_size_t current_sample_count(void) { 
+		return _current_sample_count;
 	}
 };
 
-template<class PortNamesT, const port* port_des_array>
+template<class PortNamesT, const port_info_t* port_des_array>
 constexpr typename std::array<typename port_array<PortNamesT, port_des_array>::caller, 
 	port_array<PortNamesT, port_des_array>::port_size>
 	port_array<PortNamesT, port_des_array>::callers;
@@ -616,11 +647,11 @@ struct descriptor_t
 	const char * maker;
 	const char * copyright;
 	void * implementationData;
-	const ladspa::port* arr;
+	const ladspa::port_info_t* arr;
 };
 
 // returns size of the port array
-static constexpr port_size_t get_port_size(const ladspa::port* arr) {
+static constexpr port_size_t get_port_size(const ladspa::port_info_t* arr) {
 	return arr->is_final() ? 0 : get_port_size(arr + 1) + 1;
 }
 
@@ -654,14 +685,14 @@ class builder
 	/*
 	 * This shifts the arrays
 	 */
-	template<port::type PT, int N, class T, int... Is>
+	template<port_info_t::type PT, int N, class T, int... Is>
 	static constexpr auto _get_elem(helpers::full_seq<Is...>, T* lhs)
-	-> std::array<decltype(lhs[0].get(port::type_id<PT>())), N>
+	-> std::array<decltype(lhs[0].get(port_info_t::type_id<PT>())), N>
 	{
-		return {{lhs[Is].get(port::type_id<PT>())...}};
+		return {{lhs[Is].get(port_info_t::type_id<PT>())...}};
 	}
 
-	template<port::type PT, int N, class T>
+	template<port_info_t::type PT, int N, class T>
 	static constexpr auto get_elem(T* lhs)
 	-> decltype( _get_elem<PT, N>(helpers::seq<N>{}, lhs) )
 	{
@@ -706,8 +737,12 @@ class builder
 		sample_size_t _sample_count,
 		helpers::full_seq<Is...>)
 	{
-		// please do not remove this line, it is really necessary!
-		helpers::do_nothing(pl->ports.template get<Is>().set_size(_sample_count)...);
+		// TODO: remove other code
+	//	helpers::do_nothing(
+	//		pl->ports.template get<Is>().set_size(_sample_count)...);
+		
+		pl->ports.set_current_sample_count(_sample_count);
+		
 		
 //		auto& ports = static_cast<Plugin*>(_instance)->ports;
 		
@@ -738,18 +773,18 @@ class builder
 		
 		set_sizes(instance, _sample_count, helpers::seq<port_size, 0, criterium_is_buffer>{});
 	//	_run_with_seq(_instance, _sample_count, helpers::gen_seq<port_size>{});
-		instance->run(_sample_count); // todo: remove sample_count
+		instance->run(); // todo: remove sample_count
 	}
 	
 	static constexpr std::array<LADSPA_PortDescriptor, port_size>
-		port_descriptors
-		= get_elem<port::type::descriptor, port_size>(instance.arr);
+		port_info
+		= get_elem<port_info_t::type::descriptor, port_size>(instance.arr);
 	static constexpr std::array<const char*, port_size>
 		port_names
-		= get_elem<port::type::name, port_size>(instance.arr);
+		= get_elem<port_info_t::type::name, port_size>(instance.arr);
 	static constexpr std::array<LADSPA_PortRangeHint, port_size>
 		port_range_hints
-		= get_elem<port::type::range_hint, port_size>(instance.arr);
+		= get_elem<port_info_t::type::range_hint, port_size>(instance.arr);
 	static constexpr LADSPA_Descriptor descriptor_for_ladspa =
 	{
 		instance.unique_id,
@@ -759,7 +794,7 @@ class builder
 		instance.maker,
 		instance.copyright,
 		port_size,
-		helpers::get_data(port_descriptors),
+		helpers::get_data(port_info),
 		helpers::get_data(port_names),
 		helpers::get_data(port_range_hints),
 		instance.implementationData,
@@ -777,45 +812,13 @@ public:
 	{ return descriptor_for_ladspa; }
 };
 
-template<class port_array_t>
-class safe_ports
-{
-private:
-	const typename port_array_t::return_value port_tuple;
-	
-	template<int ...Is>
-	safe_ports(const port_array_t& ports, int _sample_count, helpers::full_seq<Is...>)
-	: port_tuple(	// constructors for the save buffers/pointers
-				// they have the pointers as argument, and their lenght
-				// (which will be ignored for pointer_template)
-				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
-			)
-	{
-	}
-	
-	template<std::size_t id>
-	auto get() -> decltype( std::get<id>(port_tuple) ) {
-		return std::get<id>(port_tuple);
-	}
-	
-public:
-	safe_ports(const port_array_t& ports, int _sample_count)
-	: safe_ports(ports, _sample_count, typename helpers::seq<helpers::enum_size<typename port_array_t::port_names_t>()>())
-	{}
-
-	template<typename port_array_t::port_names_t id>
-	auto get() -> decltype( this->get<(std::size_t)id>() ) {
-		return get<(std::size_t)id>();
-	}
-};
-
 /*
  * Static member definitions
  */
 template<class Plugin>
 	constexpr std::array<LADSPA_PortDescriptor,
 	builder<Plugin>::port_size>
-	builder<Plugin>::port_descriptors;
+	builder<Plugin>::port_info;
 template<class Plugin>
 	constexpr std::array<const char*, builder<Plugin>::port_size>
 	builder<Plugin>::port_names;

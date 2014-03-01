@@ -4,7 +4,15 @@ using namespace ladspa;
 
 struct amplifier
 {
-	static constexpr port port_descriptors[] =
+	enum class port_names
+	{
+		value,
+		in_1,
+		out_1,
+		size
+	};
+	
+	static constexpr port_info_t port_info[] =
 	{
 		{ "Gain", port_types::input | port_types::control,
 			{(port_hints::bounded_below 
@@ -26,45 +34,41 @@ struct amplifier
 		"Richard Furse (LADSPA example plugins)", // author
 		strings::copyright::gpl3,
 		nullptr, // implementation data
-		port_descriptors
+		port_info
 	};
 	
-	enum class port_names
-	{
-		value,
-		in_1,
-		out_1,
-		size
-	};
-	
-	typedef port_array<port_names, port_descriptors> ports_t;
+	typedef port_array<port_names, port_info> ports_t;
 	ports_t ports;
 	
-	void run(sample_size_t sample_count) const
+	void run() const
 	{
-	/*	const const_buffer& pfInput = ports.get<port_names::in_1>();
-		const buffer& pfOutput = ports.get<port_names::out_1>();
-		const const_pointer& fGain = ports.get<port_names::value>();
+		// the classic way
+/*
+		const_buffer in_buffer = ports.get<port_names::in_1>();
+		buffer out_buffer = ports.get<port_names::out_1>();
 		
-		data* _pfOutput= pfOutput.begin();
-		const data* _pfInput= pfInput.begin(); */
+		for(std::size_t i = 0; i < in_buffer.size(); i++) {
+			out_buffer[i]
+				= in_buffer[i]
+				* ports.get<port_names::value>();
+		}*/
+
+		// you can use C++11's range based for loops on buffers
+	/*	for( auto& i : out_buffer) {
+			out_buffer[i] = 0;
+		}*/
 		
-	/*	multi_iterator<ports_t,
-			port_names::in_1,
-			port_names::out_1>
-			itr(ports, sample_count);
-		
-		for (sample_size_t i = 0; i < sample_count; i++) 
-		 *(_pfOutput++) = *(_pfInput++) * (*fGain);*/
-		
+		// the new way
 		auto container = ports.samples<
 			port_names::in_1,
-			port_names::out_1>(sample_count);
+			port_names::out_1>();
 		
 		for( auto& ptrs : container ) {
-			ptrs.get<port_names::out_1>() = ptrs.get<port_names::in_1>() * (*(ports.get<port_names::value>()));
+			ptrs.get<port_names::out_1>()
+				= ptrs.get<port_names::in_1>()
+				* ports.get<port_names::value>();
 		}
- 	//	for( multi_iterator<ports_t, port_names::in_1, port_names::out_1> itr = container.begin(); itr != container.end(); ++itr) { /*itr.get<port_names::in_1>();*/ }
+
 	}
 };
 
@@ -80,11 +84,4 @@ ladspa_descriptor(plugin_index_t index) {
 	return collection<amplifier>::get_ladspa_descriptor(index);
 }
 
-#include <typeinfo>
-#include <iostream>
-int main()
-{  
-	std::cout << builder<amplifier>::get_ladspa_descriptor().Name << std::endl;
-	return 0;
-}
 
