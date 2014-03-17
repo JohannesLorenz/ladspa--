@@ -1,0 +1,23 @@
+
+#
+# special headers
+#
+
+#CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/ui_qt_config.h.in
+#	${CMAKE_CURRENT_BINARY_DIR}/ui_qt_config.h)
+
+#
+# Compile
+#
+
+SET(AMPLIFIER_SOURCES "amplifier.cpp")
+
+# FLAGS
+add_definitions(-fPIC)
+
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/../src
+	${CMAKE_CURRENT_BINARY_DIR})
+
+ADD_LIBRARY(amplifier STATIC ${AMPLIFIER_SOURCES})
+

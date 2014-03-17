@@ -1,0 +1,4 @@
+cmake modules - do they work?
+README file
+make install (cmake)
+

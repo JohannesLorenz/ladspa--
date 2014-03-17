@@ -20,10 +20,14 @@
 
 #include <tuple>
 #include <array>
-#include <bitset>
 #include <cassert>
 
 #include <ladspa.h>
+
+namespace ladspa
+{
+
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 namespace helpers
 {
@@ -100,14 +104,14 @@ template<class ...Args> static void do_nothing(Args...) {}
 /*
  * avoiding instantiations
  */
-template<typename ...> struct falsify : std::false_type { };
-template<typename T, T Arg> struct falsify_id : std::false_type { };
+template<typename ...> class falsify : std::false_type { };
+template<typename T, T Arg> class falsify_id : std::false_type { };
 template<typename ...Args>
-struct dont_instantiate_me {
+class dont_instantiate_me {
 	static_assert(falsify<Args...>::value, "This should not be instantiated.");
 };
 template<typename T, T Arg>
-struct dont_instantiate_me_id {
+class dont_instantiate_me_id {
 	static_assert(falsify_id<T, Arg>::value, "This should not be instantiated.");
 };
 
@@ -124,18 +128,30 @@ constexpr const T* get_data(const std::array<T, N>& a)
 template<class EnumClass>
 constexpr std::size_t enum_size() { return (std::size_t)EnumClass::size; }
 
-//! checks whether a class has a function called "instantiate"
-//! note: if we need multiple of those, inherit from a base class
+//! checks whether class @a T has a ctor with two arguments
+//! @note: if we need multiple of those, inherit from a base class
+// Source: [1]
 template <typename T>
-class has_instantiate
-{ // source: [1]
-	typedef char one;
-	typedef long two;
+class has_ctor_1_args
+{
+	struct any
+	{
+		template<
+			typename U, typename Sfinae =
+			typename std::enable_if< false ==
+				std::is_same<U,T>::value, U >::type
+		>
+		operator U() const;
+	};
 
-	template <typename C> static one test( decltype(&C::instantiate) ) ;
-	template <typename C> static two test( ... );
+	template <typename U>
+	static int32_t sfinae( decltype( U( any( ) ) ) * );
+	template <typename U>
+	static int8_t sfinae( ... );
+	
 public:
-	enum { value = sizeof(test<T>(0)) == sizeof(char) };
+	static constexpr bool value =
+		sizeof( sfinae<T>( nullptr ) ) == sizeof( int32_t );
 };
 
 template <class T, template<class > class HaveClass>
@@ -144,10 +160,48 @@ using en_if_has = typename std::enable_if<HaveClass<T>::value>::type;
 template <class T, template<class > class HaveClass>
 using en_if_doesnt_have = typename std::enable_if<!HaveClass<T>::value>::type;
 
+/*
+ * misc
+ */
+template<class T> struct identity {};
+
+//! if @a Type is the nth integer in @a Others, returns n
+template <std::size_t Type, std::size_t... Others>
+struct id_in_list;
+
+template <std::size_t Type>
+struct id_in_list<Type>
+{
+	static constexpr size_t value = -1;
+};
+
+template <std::size_t Type, std::size_t ... Others>
+struct id_in_list<Type, Type, Others...>
+{
+	static constexpr size_t value = 0;
+};
+
+template <std::size_t Type, std::size_t First, std::size_t ... Others>
+struct id_in_list<Type, First, Others...>
+{
+	static constexpr size_t value
+		= id_in_list<Type, Others...>::value + 1;
+};
+
 } // namespace helpers
 
-namespace ladspa
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
+
+//! A struct describing ladspa++'s version
+struct version_t
 {
+	char major;
+	char minor;
+	char patch;
+};
+
+//! This object can be used to receive the current ladspa++ version
+constexpr static version_t version = { 1, 0, 0 };
 
 typedef unsigned long port_size_t;
 typedef unsigned long sample_size_t;
@@ -155,9 +209,12 @@ typedef unsigned long sample_rate_t;
 typedef unsigned long plugin_index_t;
 typedef LADSPA_Data data;
 
-//! A simple, type safe implementation of a bitmask.
-//! It purpose is to be dependent on a class T, which means that bitmasks from
-//! different contexts can not be put into one operator.
+/**
+ * @brief A simple, type safe implementation of a bitmask.
+ *
+ * Its purpose is to be dependent on a class T, which means that bitmasks from
+ * different contexts can not be put into one operator.
+ */
 template<class T>
 class bitmask
 {
@@ -168,7 +225,7 @@ public:
 	constexpr bool is(const bitmask<T> property) const {
 		return bits & property.bits;
 	}
-	constexpr bitmask(int _bits) : bits(_bits) {}
+	constexpr bitmask(int _bits = 0) : bits(_bits) {}
 	
 	// related functions
 	friend constexpr bitmask<T> operator|
@@ -178,8 +235,11 @@ public:
 	}
 };
 
-//! Struct containing bits for ladspa properties.
-//! These specify optional properties of the plugin.
+/**
+ * @brief Struct containing bits for ladspa properties.
+ * 
+ * The bits specify optional properties of the plugin.
+ */
 struct properties
 {
 	typedef bitmask<properties> m;
@@ -188,8 +248,11 @@ struct properties
 	static constexpr m hard_rt_capable = LADSPA_PROPERTY_HARD_RT_CAPABLE;
 };
 
-//! Struct containing bits for ladspa's port types.
-//! These describe the basic communication type of a port.
+/**
+ * @brief Struct containing bits for ladspa's port types.
+ * 
+ * The bits describe the basic communication type of a port.
+ */
 struct port_types
 {
 	typedef bitmask<port_types> m;
@@ -201,8 +264,11 @@ struct port_types
 	static constexpr m audio = LADSPA_PORT_AUDIO;
 };
 
-//! Struct containing bits for ladspa's port hints.
-//! These give hints about the port's data range.
+/**
+ * @brief Struct containing bits for ladspa's port hints.
+ * 
+ * The bits give hints about the port's data range.
+ */
 struct port_hints
 {
 	typedef bitmask<port_hints> m;
@@ -225,9 +291,12 @@ struct port_hints
 	static constexpr m default_440 = LADSPA_HINT_DEFAULT_440;
 };
 
-//! Class to access a whole buffer of @a T, like std::vector.
-//! Can be hard copied, this will be cheap.
-//! The class can contain a size information, or not.
+/**
+ * @brief Class to access a whole buffer of @a T, like std::vector<T>.
+ * 
+ * Can be hard copied, this will be cheap.
+ * The class can contain a size information, or not.
+ */
 template<class T>
 class buffer_template
 {
@@ -242,6 +311,7 @@ public:
 	
 	void assign(T* _in_data) { _data = _in_data; }
 	void set_size(std::size_t _in_size) { _size = _in_size; }
+
 //	void set_size(std::size_t _in_size) const { return _size; }
 	std::size_t size() const { return _size; }
 	
@@ -267,29 +337,34 @@ public:
 		: _data(_in_data) {}
 	pointer_template(T* _in_data, int )
 		: pointer_template(_in_data) {}
+
 	void assign(T* _in_data) { _data = _in_data; }
-	
 	void set_size(std::size_t _in_size) const {}
 
 	operator const T&() const { return *_data; }
 	operator T&() { return *_data; }
 };
 
+//! Class for mutable buffers (like out ports)
 typedef buffer_template<data> buffer;
+//! Class for const buffers (like in ports)
 typedef buffer_template<const data> const_buffer;
+//! Class for mutable single values (like in ports)
 typedef pointer_template<data> pointer;
+//! Class for const single values (like out ports)
 typedef pointer_template<const data> const_pointer;
 
 //! A class which describes a port.
 struct port_info_t
 {
+	//! A class which describes the numeric range for a port's values
 	struct range_hint_t
 	{
 		bitmask<port_hints> descriptor;
 		data lower_bound;
 		data upper_bound;
 	};
-		
+	
 	enum class type
 	{
 		name,
@@ -297,12 +372,15 @@ struct port_info_t
 		range_hint
 	};
 	
-	const char* name;
-	bitmask<port_types> descriptor;
-	range_hint_t hint;
+	const char* name; //!< Name of the port. Should be short.
+	const char* desription; //!< A short description about what it does
+	bitmask<port_types> descriptor; //!< Information about the port type
+	range_hint_t hint; //!< Information about numeric range
 	
 	constexpr bool is_final() const { return (name == nullptr); }
 	
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
+	//! This class is used in combination with the get() functions
 	template<type I> struct type_id {};
 	
 	// get function overloads
@@ -315,21 +393,56 @@ struct port_info_t
 			hint.lower_bound,
 			hint.upper_bound };
 	}
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
+	/*
+	 *  Predefined, common types
+	 */
+	
+//	constexpr const static port_info_t audio_input,
+//		audio_output;
+	
+	
+/*	constexpr const static port_info_t audio_input = {
+	"Input", "Effect's audio input (mono).",
+	port_types::input | port_types::audio, {0} };
+	constexpr const static port_info_t audio_output = {
+	"Output", "Effect's audio output (mono).",
+	port_types::output | port_types::audio, {0} };*/
 };
 
-//! port marking the end, recognized via the nullptr
-static constexpr port_info_t final_port = { nullptr, 0, {0,0,0} };
-
-template<const port_info_t* PortDesArray, int PortName>
-constexpr const bitmask<port_types>* type_at()
+//! A list of very common ports
+namespace port_info_common
 {
-	return &PortDesArray[PortName].descriptor;
+	constexpr static port_info_t audio_input = {
+		"Input", "Effect's audio input (mono).",
+		port_types::input | port_types::audio };
+	constexpr static port_info_t audio_input_l = {
+		"Input (L)", "Effect's audio input (left).",
+		port_types::input | port_types::audio };
+	constexpr static port_info_t audio_input_r = {
+		"Input (R)", "Effect's audio input (right).",
+		port_types::input | port_types::audio };
+	
+	constexpr static port_info_t audio_output = {
+		"Output", "Effect's audio output (mono).",
+		port_types::output | port_types::audio };
+	constexpr static port_info_t audio_output_l = {
+		"Output (L)", "Effect's audio output (mono).",
+		port_types::output | port_types::audio };
+	constexpr static port_info_t audio_output_r = {
+		"Output (R)", "Effect's audio output (right).",
+		port_types::output | port_types::audio };
+	
+	// more ports can be added on request...
+	
+	//! port marking the end, recognized via the nullptr
+	constexpr static port_info_t final_port = { nullptr,
+		"Final port (internal use only).", 0, {0,0,0} };
 }
 
-// TODO: what should be hidden from user -> helpers??
-
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
 /*
- *  Return value specialisations for port_array
+ *  Return value specialisations for port_array_t
  */
 template<class contained_type, const bitmask<port_types>* bm, class Enable = void>
 struct return_value_base_type
@@ -363,39 +476,26 @@ struct return_value_access_type
 };
 
 template<class PortNamesT, const port_info_t* PortDesArray>
-class port_array;
+class port_array_t;
 
-template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+template<class port_array_t_t, typename port_array_t_t::port_names_t ...PortIndexes>
 class port_ptrs
 {
-	helpers::dont_instantiate_me<port_array_t> s;
+	helpers::dont_instantiate_me<port_array_t_t> s;
 };
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
+/** 
+ * @brief The result of dereferencing a multi_iterator.
+ * 
+ * This class holds multiple pointers to the elements of multiple vectors.
+ * The position of these different pointers is always equal.
+ * From outside, there a no pointers, but references.
+ */
 template<class PortNamesT, const port_info_t* PortDesArray,
-	typename port_array<PortNamesT, PortDesArray>::port_names_t ...PortIndexes>
-class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
-{	
-	template <std::size_t Type, std::size_t... Others>
-	struct contains;
-
-	template <std::size_t Type>
-	struct contains<Type>
-	{
-		static constexpr int id = -1;
-	};
-
-	template <std::size_t Type, std::size_t ... Others>
-	struct contains<Type, Type, Others...>
-	{
-		static constexpr int id = 0;
-	};
-
-	template <std::size_t Type, std::size_t First, std::size_t ... Others>
-	struct contains<Type, First, Others...>
-	{
-		static constexpr int id = contains<Type, Others...>::id + 1;
-	};
-	
+	typename port_array_t<PortNamesT, PortDesArray>::port_names_t ...PortIndexes>
+class port_ptrs<port_array_t<PortNamesT, PortDesArray>, PortIndexes...>
+{
 	class type_helpers
 	{
 		template<const bitmask<port_types>* bm>
@@ -418,35 +518,36 @@ class port_ptrs<port_array<PortNamesT, PortDesArray>, PortIndexes...>
 				<typename type_at_port<Is>::type*...> type;
 		};
 	};
-
+public:
 	template<int PortName>
-	using my_type_at = typename type_helpers::template type_at_port<PortName>::type;
-	
+	using type_at = typename type_helpers::template type_at_port<PortName>::type;
+
+private:
 	typedef typename type_helpers::template _storage_t<(int)PortIndexes...>::type
 	storage_t;
 
 	storage_t pointers; //!< valid if we are not at the end()
 			
-	typedef port_array<PortNamesT, PortDesArray> port_array_t;
+	typedef port_array_t<PortNamesT, PortDesArray> port_array_t_t;
 	
 	template<std::size_t id>
-	my_type_at<id>*& get_ptr() {
-		return std::get<contains<id, (std::size_t)PortIndexes...>::id>(port_ptrs::pointers);
+	type_at<id>*& get_ptr() {
+		return std::get<helpers::id_in_list<id, (std::size_t)PortIndexes...>::value>(port_ptrs::pointers);
 	}
 	
-	template<typename port_array_t::port_names_t id>
-	my_type_at<(std::size_t)id>*& get_ptr() {
+	template<typename port_array_t_t::port_names_t id>
+	type_at<(std::size_t)id>*& get_ptr() {
 		return get_ptr<(std::size_t)id>();
 	}
 	
 	template<std::size_t id>
-	my_type_at<id>& get() {
+	type_at<id>& get() {
 		return *get_ptr<id>();
 	}
 	
 public:
-	port_ptrs(const port_array_t& port_array)
-		: pointers(port_array.template get<PortIndexes>().begin()...) {}
+	port_ptrs(const port_array_t_t& port_array_t)
+		: pointers(port_array_t.template get<PortIndexes>().begin()...) {}
 	port_ptrs() {}
 	
 	void operator++()
@@ -454,24 +555,27 @@ public:
 		helpers::do_nothing(++(get_ptr<PortIndexes>())...);
 	}
 	
-	template<typename port_array_t::port_names_t id>
-	my_type_at<(std::size_t)id>& get() {
+	template<typename port_array_t_t::port_names_t id>
+	type_at<(std::size_t)id>& get() {
 		return get<(std::size_t)id>();
 	}
 };
 
+/** 
+ * @brief An iterator over a port array container.
+ * 
+ * This class holds multiple pointers to the elements of multiple vectors.
+ * The position of these different pointers is always equal.
+ */
 template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
 class multi_iterator
 {
 private:
-	
-	const sample_size_t sample_count; //! note: this parameter could be obsolete, or useful...
-	
 	typedef multi_iterator<port_array_t, PortIndexes...> m_type;
 	
 	port_ptrs<port_array_t, PortIndexes...> _port_ptrs;
-	
 	std::size_t position; //!< valid if we are not at the end()
+	const sample_size_t sample_count; //! note: this parameter could be obsolete, or useful...
 
 public:
 	bool operator!=(const m_type& other)
@@ -486,40 +590,54 @@ public:
 		return *this;
 	}
 	
-	port_ptrs<port_array_t, PortIndexes...>& operator*() { return _port_ptrs; } // TODO: const?
+	port_ptrs<port_array_t, PortIndexes...>& operator*() { return _port_ptrs; }
 	
-	//! begin iterator
-	multi_iterator(const port_array_t& port_array, sample_size_t _sample_count) : sample_count(_sample_count),
+	//! Iterator pointing to the begin of @a port_array
+	multi_iterator(const port_array_t& port_array, sample_size_t _sample_count) :
 		_port_ptrs(port_array),
-		position(0)
+		position(0),
+		sample_count(_sample_count)
 	{}
 	
-	//! end iterator
-	multi_iterator(sample_size_t _sample_count)
-	: sample_count(_sample_count),
-	 position(_sample_count)
+	//! Iterator pointing to the end of any port array
+	multi_iterator(sample_size_t _sample_count) :
+		position(_sample_count),
+		sample_count(_sample_count)
 	{
 	}
 };
 
-template<class port_array_t, typename port_array_t::port_names_t ...PortIndexes>
+/**
+ * @brief A container over a port array. Can be iterated.
+ * 
+ * This class is being instantiated to mark
+ * over which ports you want to iterate.
+ */
+template<class port_array_t_t, typename port_array_t_t::port_names_t ...PortIndexes>
 class samples_container
 {
-	const port_array_t& port_array;
+	const port_array_t_t& port_array_t;
 	const sample_size_t sample_count;
-	typedef multi_iterator<port_array_t, PortIndexes...> multi_itr_type;
+	typedef multi_iterator<port_array_t_t, PortIndexes...> multi_itr_type;
 public:
-	samples_container(const port_array_t& pa, sample_size_t sc) : port_array(pa), sample_count(sc) {}
-	multi_itr_type begin() const { return multi_itr_type(port_array, sample_count); }
+	samples_container(const port_array_t_t& pa, sample_size_t sc)
+		: port_array_t(pa), sample_count(sc) {}
+	multi_itr_type begin() const {
+		return multi_itr_type(port_array_t, sample_count); }
 	multi_itr_type end() const { return multi_itr_type(sample_count); }
 };
 
-//! A class that contains all ports, including their information and buffers.
-//! This includes the buffer size.
+/**
+ * @brief A class that contains all ports.
+ * 
+ * This includes all buffers and the buffer size.
+ */
 template<class PortNamesT, const port_info_t* PortDesArray>
-class port_array
+class port_array_t
 {
-private: // TODO: what can be private?
+private:
+	typedef port_array_t<PortNamesT, PortDesArray> m_type;
+	
 	class type_helpers
 	{
 	
@@ -549,11 +667,11 @@ private: // TODO: what can be private?
 	
 	constexpr static std::size_t port_size = helpers::enum_size<PortNamesT>();
 	constexpr static const port_info_t* port_des_array = PortDesArray;
-	
-	//! shortening
+public:
+	typedef PortNamesT port_names_t;
 	template<int PortName>
-	using my_type_at = typename type_helpers::template type_at_port<PortName>::type;
-	
+	using type_at = typename type_helpers::template type_at_port<PortName>::type;
+private:
 	typedef typename type_helpers::template _storage_t<
 		typename helpers::template seq<port_size>>::type storage_t;
 private:
@@ -564,13 +682,13 @@ private:
 	int _current_sample_count;
 	
 	template<int id>
-	static void set_static(port_array& p, data* d) {
+	static void set_static(port_array_t& p, data* d) {
 		p.set_internal<id>(d);
 	}
 	
 	struct caller
 	{
-		void (&callback)(port_array&, data*);
+		void (&callback)(port_array_t&, data*);
 	};
 	
 	template<class T>
@@ -584,7 +702,7 @@ private:
 	template<int ...Is>
 	static constexpr typename std::array<caller, port_size> init_callers(helpers::full_seq<Is...>)
 	{
-		return {{port_array::set_static<Is>...}};
+		return {{port_array_t::set_static<Is>...}};
 	}
 
 	static constexpr typename std::array<caller, port_size> callers
@@ -592,7 +710,7 @@ private:
 	
 	static constexpr bool in_range_cond(int id)
 	{
-		return id >= 0 && id < helpers::enum_size<PortNamesT>();
+		return id >= 0 && id < helpers::enum_size<port_names_t>();
 	}
 	
 	template<int id>
@@ -600,89 +718,123 @@ private:
 		assert(in_range_cond(id));
 		std::get<id>(storage).assign(d);
 	}
-	
 public:
-	typedef PortNamesT port_names_t;
-	void set(int id, data* d) {
+
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
+	//! Intended for internal use only
+	void set_caller(int id, data* d) {
 		callers[id].callback(*this, d);
 	}
-	
+	//! Intended for internal use only
+	void set_current_sample_count(sample_size_t s) { 
+		_current_sample_count = s;
+	}
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
+
 	template<std::size_t id>
-	my_type_at<id> get() const {
-		my_type_at<id> ret_val = std::get<id>(storage);
+	type_at<id> get() const {
+		type_at<id> ret_val = std::get<id>(storage);
 		// buffer size is usually not set - set it
 		ret_val.set_size(_current_sample_count);
 		return ret_val;
 	}
 	template<port_names_t id>
-	my_type_at<(std::size_t)id> get() const {
+	type_at<(std::size_t)id> get() const {
 		return get<(std::size_t)id>();
 	}
-	
-	typedef port_array<PortNamesT, PortDesArray> m_type;
-	
 	template<port_names_t ...port_ids>
 	samples_container<m_type, port_ids...> samples() {
 		return samples_container<m_type, port_ids...>(
 			*this, _current_sample_count);
 	}
-	
-	void set_current_sample_count(sample_size_t s) { 
-		_current_sample_count = s; }
+	//! A way the programmer can get the current sample count
+	//! in the run() function
 	sample_size_t current_sample_count(void) { 
 		return _current_sample_count;
 	}
 };
 
 template<class PortNamesT, const port_info_t* port_des_array>
-constexpr typename std::array<typename port_array<PortNamesT, port_des_array>::caller, 
-	port_array<PortNamesT, port_des_array>::port_size>
-	port_array<PortNamesT, port_des_array>::callers;
+constexpr typename std::array<typename port_array_t<PortNamesT, port_des_array>::caller, 
+	port_array_t<PortNamesT, port_des_array>::port_size>
+	port_array_t<PortNamesT, port_des_array>::callers;
 
-//! class which the user will have to fill in
-struct descriptor_t
+//! A class which the programmer fills in to describe her/his plugin
+struct info_t
 {
 	unsigned long unique_id;
 	const char * label;
 	bitmask<properties> plugin_properties;
 	const char * name;
 	const char * maker;
+	const char * help;
+	const char * keywords[8];
 	const char * copyright;
-	void * implementationData;
-	const ladspa::port_info_t* arr;
+	void * implementation_data;
 };
 
-// returns size of the port array
+//! returns size of the port array
 static constexpr port_size_t get_port_size(const ladspa::port_info_t* arr) {
 	return arr->is_final() ? 0 : get_port_size(arr + 1) + 1;
 }
 
-// TODO: capitalization
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
 /**
- * The builder class
- * @brief Builds all things ladspa needs for your parameters
+ * @brief A struct between builder and blugin,
+ * in order to hold the port array.
  * 
- * You provide parameters via @a Plugin. They will be converted into a ladspa
- * descriptor. This includes descripting data and function pointers. The
- * latter means that this class also redirects the callbacks to @a Plugin. So
- * you have to provide some stuff for @a Plugin (note that the names must be
- * the same):
+ * (it should not be held by the user)
+ */
+template<class Plugin>
+class plugin_holder_t
+{
+	typedef port_array_t<typename Plugin::port_names,
+		Plugin::port_info> _port_array_t;
+	
+	_port_array_t _ports;
+	Plugin plugin;
+
+public:
+	template<class _Plugin, helpers::en_if_has<
+		_Plugin, helpers::has_ctor_1_args>* = nullptr>
+	plugin_holder_t(helpers::identity<_Plugin>,
+		sample_rate_t _sample_rate
+	) : plugin(_sample_rate) {}
+	
+	template<class _Plugin, helpers::en_if_doesnt_have<
+		_Plugin, helpers::has_ctor_1_args>* = nullptr>
+	plugin_holder_t(helpers::identity<_Plugin>,
+		sample_rate_t
+	) {}
+	
+	void run(sample_size_t _sample_count) {
+		_ports.set_current_sample_count(_sample_count);
+		plugin.run(_ports);
+	}
+	
+	void connect_port(int _port, data* d) {
+		_ports.set_caller(_port, d);
+	}
+};
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
+
+/**
+ * @brief A class that sets up everything for the C ladpsa side.
  * 
- * static constexpr descriptor_t descriptor;
- * static constexpr port[...]
- * TODO: rewrite that // TODO: other file
- * port_array<port_names, static constexpr port[...]> ports; // port_names is an enum, port des
- * LADSPA_Handle* instantiate(const struct _LADSPA_Descriptor * _descriptor, sample_rate_t _sample_rate) // optional
- * void sample_size_t sample_count()
- * 
+ * This includes the static descriptions, port buffers and callbacks.
+ * You do not use this class, please use the collection class instead.
  */
 template<class Plugin>
 class builder
 {
-	static constexpr const descriptor_t& instance = Plugin::descriptor;
-	static constexpr port_size_t port_size = get_port_size(instance.arr);
-//	typedef port_array<typename Plugin::port_names,
-//		static_cast<const ladspa::port*>(instance.arr)> port_array_t;
+	typedef plugin_holder_t<Plugin> _plugin_holder_t;
+	
+	/*
+	 * Data
+	 */
+	static constexpr const info_t& descriptor = Plugin::info;
+	static constexpr const port_info_t* port_info = Plugin::port_info;
+	static constexpr port_size_t port_size = get_port_size(port_info);
 	
 	/*
 	 * This shifts the arrays
@@ -704,25 +856,16 @@ class builder
 	/*
 	 * These functions are the ladspa callbacks
 	 */
-	//! This version lets the user choose a constructor
-	template<class _Plugin, helpers::en_if_has<
-		_Plugin, helpers::has_instantiate>* = nullptr>
+
+	template<class _Plugin>
 	static LADSPA_Handle _instantiate(
-		const struct _LADSPA_Descriptor * _descriptor,
-		sample_rate_t _sample_rate) {
-		return (void*)_Plugin::instantiate(_descriptor, _sample_rate);
-	}
-	
-	//! This simply allocates a new object without parameters
-	template<class _Plugin, helpers::en_if_doesnt_have
-		<_Plugin, helpers::has_instantiate>* = nullptr>
-	static LADSPA_Handle _instantiate(
-		const struct _LADSPA_Descriptor *, sample_rate_t ) {
-		return new _Plugin;
+		const struct _LADSPA_Descriptor * d, sample_rate_t s) {
+		//return new _Plugin;
+		return new _plugin_holder_t(helpers::identity<Plugin>(), s);
 	}
 	
 	static void _cleanup(LADSPA_Handle _instance) {
-		delete static_cast<Plugin*>(_instance);
+		delete static_cast<_plugin_holder_t*>(_instance);
 	}
 	
 	static void 
@@ -730,76 +873,54 @@ class builder
 		port_size_t _port,
 		data * _data_location)
 	{
-		static_cast<Plugin*>(_instance)
-			->ports.set(_port, _data_location);
-	}
-	
-	template<int ...Is>
-	static void set_sizes(Plugin*& pl,
-		sample_size_t _sample_count,
-		helpers::full_seq<Is...>)
-	{
-		// TODO: remove other code
-	//	helpers::do_nothing(
-	//		pl->ports.template get<Is>().set_size(_sample_count)...);
-		
-		pl->ports.set_current_sample_count(_sample_count);
-		
-		
-//		auto& ports = static_cast<Plugin*>(_instance)->ports;
-		
-	/*	typedef decltype(static_cast<Plugin*>(_instance)->ports) port_array_t;
-		
-		typename port_array_t::return_value tp
-			(	// constructors for the save buffers/pointers
-				// they have the pointers as argument, and their lenght
-				// (which will be ignored for pointer_template)
-				typename port_array_t::template port_return_value<Is>::type(ports[Is], _sample_count)...
-			);*/
-	//	set_sizes();
-		
-	//	static_cast<Plugin*>(_instance)->run(_sample_count);
+		static_cast<_plugin_holder_t*>(_instance)->
+			connect_port(_port, _data_location);
+		//static_cast<_plugin_holder_t*>(_instance)->
+		//	_ports.set_caller(_port, _data_location);
 	}
 	
 	template<int i>
 	struct criterium_is_buffer
 	{
-		constexpr static bool value = instance.arr[i].descriptor.is(port_types::audio);
+		constexpr static bool value = port_info[i].descriptor.is(port_types::audio);
 	};
 	
 	//void _activate(LADSPA_Handle Instance);
 	static void _run(LADSPA_Handle _instance,
 		sample_size_t _sample_count)
 	{
-		Plugin* instance = static_cast<Plugin*>(_instance);
 		
-		set_sizes(instance, _sample_count, helpers::seq<port_size, 0, criterium_is_buffer>{});
+		//Plugin* instance = &(static_cast<_plugin_holder_t>(_instance)->plugin);
+		
+//		set_sizes(nullptr, _sample_count, helpers::seq<port_size, 0, criterium_is_buffer>{});
 	//	_run_with_seq(_instance, _sample_count, helpers::gen_seq<port_size>{});
-		instance->run(); // todo: remove sample_count
+	//	instance->run(ports);
+		
+		static_cast<_plugin_holder_t*>(_instance)->run(_sample_count);
 	}
 	
 	static constexpr std::array<LADSPA_PortDescriptor, port_size>
-		port_info
-		= get_elem<port_info_t::type::descriptor, port_size>(instance.arr);
+		port_descr
+		= get_elem<port_info_t::type::descriptor, port_size>(port_info);
 	static constexpr std::array<const char*, port_size>
 		port_names
-		= get_elem<port_info_t::type::name, port_size>(instance.arr);
+		= get_elem<port_info_t::type::name, port_size>(port_info);
 	static constexpr std::array<LADSPA_PortRangeHint, port_size>
 		port_range_hints
-		= get_elem<port_info_t::type::range_hint, port_size>(instance.arr);
+		= get_elem<port_info_t::type::range_hint, port_size>(port_info);
 	static constexpr LADSPA_Descriptor descriptor_for_ladspa =
 	{
-		instance.unique_id,
-		instance.label,
-		instance.plugin_properties.get_bits(),
-		instance.name,
-		instance.maker,
-		instance.copyright,
+		descriptor.unique_id,
+		descriptor.label,
+		descriptor.plugin_properties.get_bits(),
+		descriptor.name,
+		descriptor.maker,
+		descriptor.copyright,
 		port_size,
-		helpers::get_data(port_info),
+		helpers::get_data(port_descr),
 		helpers::get_data(port_names),
 		helpers::get_data(port_range_hints),
-		instance.implementationData,
+		descriptor.implementation_data,
 		_instantiate<Plugin>,
 		_connect_port,
 		nullptr, //_activate,
@@ -820,7 +941,7 @@ public:
 template<class Plugin>
 	constexpr std::array<LADSPA_PortDescriptor,
 	builder<Plugin>::port_size>
-	builder<Plugin>::port_info;
+	builder<Plugin>::port_descr;
 template<class Plugin>
 	constexpr std::array<const char*, builder<Plugin>::port_size>
 	builder<Plugin>::port_names;
@@ -831,19 +952,22 @@ template<class Plugin>
 template<class Plugin>
 	constexpr LADSPA_Descriptor builder<Plugin>::descriptor_for_ladspa;
 
+//! common strings to be used
 namespace strings
 {
+	//! strings for the info_t::copyright field
 	namespace copyright
 	{
 		constexpr const char* none = "None";
-		constexpr const char* gpl2 = "GPL v2";
 		constexpr const char* gpl3 = "GPL v3";
 	}
-	
 }
 
-//! This is for a collection of your plugin types
-//! it helps you to select the correct descriptor at runtime
+/**
+ * @brief This is for a collection of your plugin types.
+ * 
+ * it helps you to select the correct descriptor at runtime.
+ */
 template<class ...Args>
 class collection
 {
@@ -875,14 +999,15 @@ template<class ...Args>
 constexpr std::array<typename collection<Args...>::caller, sizeof...(Args)>
 	collection<Args...>::callers;
 
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
 struct correctness_checker
 {
 	// TODO: different IDs, In Out, broken inplace etc
 };
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 }
 
 // sources:
-// [1] http://stackoverflow.com/questions/257288/
-//     is-it-possible-to-write-a-c-template
-//     -to-check-for-a-functions-existence[]
+// [1] http://stackoverflow.com/questions/16137468/
+//     sfinae-detect-constructor-with-one-argument
