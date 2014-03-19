@@ -1,4 +1,6 @@
-cmake modules - do they work?
-README file
-make install (cmake)
+all-iterator
+Makefile mitliefern?
+
+not this release:
+make install
 

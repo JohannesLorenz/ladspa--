@@ -81,7 +81,7 @@ struct amplifier
 		}*/
 		
 		// the new way
-		auto container = ports.samples<
+		auto container = ports.buffers<
 			port_names::in_1,
 			port_names::out_1>();
 		

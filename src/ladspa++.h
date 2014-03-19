@@ -742,11 +742,20 @@ public:
 	type_at<(std::size_t)id> get() const {
 		return get<(std::size_t)id>();
 	}
+	
+	//! lets you choose which buffers you want to iterate over
 	template<port_names_t ...port_ids>
-	samples_container<m_type, port_ids...> samples() {
+	samples_container<m_type, port_ids...> buffers() {
 		return samples_container<m_type, port_ids...>(
 			*this, _current_sample_count);
 	}
+
+/*	//! lets you iterate over all buffers
+	samples_container<m_type, port_ids...> all_buffers() {
+		return samples_container<m_type, port_ids...>(
+			*this, _current_sample_count);
+	}*/
+	
 	//! A way the programmer can get the current sample count
 	//! in the run() function
 	sample_size_t current_sample_count(void) { 

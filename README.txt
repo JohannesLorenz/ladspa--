@@ -9,26 +9,48 @@ CONTENTS
 2 Why using ladspa++?
 3 License
 4 Documentation
-5 Installation & Debugging
+5 Installation
 6 Examples
-9 Contact
+7 Contact
 
-1 What is the ladspa++?
-:::::::::::::::::::::::
+1 What is ladspa++?
+:::::::::::::::::::
 
+ladspa++ is a C++ wrapper for ladspa. More exactly, you write your plugin in
+C++, and ladspa++ "generates" C code that ladspa can read.
+
+ladspa++ is fully ladspa compatible. However, in the future, it will allow
+additional features. Nevertheless, it will still be ladspa compatible.
+
+Note: ladspa++ is a single header file. It is not a library, you will not find
+a libladspa++.
 
 2 Why using ladspa++?
 :::::::::::::::::::::
 
-Here are good reasons:
+ladpsa++ brings many advantages to ladspa:
   
-  * ...
+  * compatibility to ladspa
 
-  * ...
+  * new and more features. further ideas:
 
-  * ...
-
+      * allow UI elements such as function plots
+      * allow keyboard input
+      * descriptions of knobs
+      * different types of UI elements than knobs
       * ...
+
+  * early error detection with compile time error messages
+
+  * possible runtime speedups:
+
+      * correct use of the const keyword
+      * ...
+
+  * code is easy to write:
+
+      * collection of common port types and strings
+      * code is smaller
       * ...
       
 3 License
@@ -42,19 +64,25 @@ Please see the LICENSE.txt file.
 You can
 
   * type `make doc' to create Doxygen code docs
-  * contact me: see `9 Contact'
+  * contact me: see `9 Contact'.
 
-5 Installation & Debugging
-::::::::::::::::::::::::::
+5 Installation
+::::::::::::::
 
-To be done.
+Type the following.
+
+  mkdir build
+  cd build
+  cmake ..
+  make
+  make install
 
 6 Examples
 ::::::::::
 
-See the examples folder
+See the examples folder.
 
-9 Contact
+7 Contact
 :::::::::
 
 Feel free to give feedback. My e-mail address is shown if you execute this in

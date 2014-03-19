@@ -5,20 +5,6 @@
 cmake_minimum_required(VERSION 2.6)
 project(ladspa++)
 
-SET(MYPROJECT "ladspa++")
-SET(MYDECSRIPTION "C++ wrapper for ladspa")
-SET(VERSION_MAJOR "1")
-SET(VERSION_MINOR "0")
-SET(VERSION_PATCH "0")
-SET(VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
-	"${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/")
-
-# help
-# MESSAGE("This is the Makefile for ${MYPROJECT} (version ${VERSION}).")
-# MESSAGE("Options: (-D...=..., cmake -L for details)")
-
 #
 # Compile
 #
@@ -30,7 +16,10 @@ add_subdirectory(doc)
 add_subdirectory(examples)
 
 #
-# CPack Stuff
+# Installation
 #
 
-INCLUDE(MyCPack)
+install(FILES src/ladspa++.h DESTINATION include)
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doc/html DESTINATION "${CMAKE_INSTALL_PREFIX}/share/ladspa++/doc/")
+install(FILES README.txt LICENSE.txt DESTINATION "${CMAKE_INSTALL_PREFIX}/share/ladspa++/doc/")
+# TODO: install docs
