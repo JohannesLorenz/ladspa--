@@ -789,10 +789,13 @@ static constexpr port_size_t get_port_size(const ladspa::port_info_t* arr) {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 /**
- * @brief A struct between builder and blugin,
+ * @brief The direct holder for the plugin class
+ *
+ * A struct between builder and plugin,
  * in order to hold the port array.
- * 
  * (it should not be held by the user)
+ *
+ * @note Internally, this class is being casted to LADSPA_Handle
  */
 template<class Plugin>
 class plugin_holder_t
