@@ -702,7 +702,7 @@ private:
 	template<int ...Is>
 	static constexpr typename std::array<caller, port_size> init_callers(helpers::full_seq<Is...>)
 	{
-		return {{port_array_t::set_static<Is>...}};
+		return {{{port_array_t::set_static<Is>}...}};
 	}
 
 	static constexpr typename std::array<caller, port_size> callers
@@ -710,7 +710,8 @@ private:
 	
 	static constexpr bool in_range_cond(int id)
 	{
-		return id >= 0 && id < helpers::enum_size<port_names_t>();
+		return id >= 0 &&
+			(std::size_t)id < helpers::enum_size<port_names_t>();
 	}
 	
 	template<int id>
@@ -990,7 +991,7 @@ class collection
 
 	static constexpr std::array<caller, sizeof...(Args)> init_callers()
 	{
-		return {{builder<Args>::get_ladspa_descriptor...}};
+		return {{{builder<Args>::get_ladspa_descriptor}...}};
 	}
 	
 	static constexpr std::array<caller, sizeof...(Args)> callers
