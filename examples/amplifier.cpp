@@ -1,6 +1,6 @@
 /*************************************************************************/
 /* ladspa++ - A C++ wrapper for ladspa                                   */
-/* Copyright (C) 2014                                                    */
+/* Copyright (C) 2014-2018                                               */
 /* Johannes Lorenz                                                       */
 /* https://github.com/JohannesLorenz/                                    */
 /*                                                                       */
